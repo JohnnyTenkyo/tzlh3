@@ -158,22 +158,22 @@ function checkCommonExits(
 ): { shouldSell: boolean; reason: string; signalType: string } | null {
   const pnlPct = (candle.close - pos.avgPrice) / pos.avgPrice;
 
-  // Hard stop loss
-  if (params.stopLossPct && params.stopLossPct > 0 && pnlPct < -params.stopLossPct) {
+  // Hard stop loss: null/undefined = 不限（不设硬性止损）。只有明确设置且>0时才触发
+  if (params.stopLossPct != null && params.stopLossPct > 0 && pnlPct < -params.stopLossPct) {
     return { shouldSell: true, reason: `止损-${(params.stopLossPct * 100).toFixed(1)}%`, signalType: "stop_loss" };
   }
 
-  // Take profit
-  if (params.takeProfitPct && params.takeProfitPct > 0 && pnlPct >= params.takeProfitPct) {
+  // Take profit: null/undefined = 不限（不设硬性止盈）。只有明确设置且>0时才触发
+  if (params.takeProfitPct != null && params.takeProfitPct > 0 && pnlPct >= params.takeProfitPct) {
     return { shouldSell: true, reason: `止盈+${(pnlPct * 100).toFixed(1)}%`, signalType: "take_profit" };
   }
 
-  // Trailing stop
-  if (params.trailingStopPct && params.trailingStopPct > 0 && pos.peakPrice > 0) {
+  // Trailing stop: null/undefined = 不限（不设移动止损）。只有明确设置且>0时才触发
+  if (params.trailingStopPct != null && params.trailingStopPct > 0 && pos.peakPrice > 0) {
     if (candle.high > pos.peakPrice) pos.peakPrice = candle.high;
     const fromPeak = (candle.close - pos.peakPrice) / pos.peakPrice;
     if (fromPeak < -params.trailingStopPct && pnlPct > 0.01) {
-      return { shouldSell: true, reason: `追踪止损(峰值回撤${(fromPeak * 100).toFixed(1)}%)`, signalType: "trailing_stop" };
+      return { shouldSell: true, reason: `追踪止损(峰値回撤${(fromPeak * 100).toFixed(1)}%)`, signalType: "trailing_stop" };
     }
   }
 

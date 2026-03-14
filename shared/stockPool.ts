@@ -914,28 +914,32 @@ export const MARKET_CAP_LABELS: Record<string, string> = {
 };
 
 // ============================================================
-// 市值分类（大/中/小盘）
+// 市値分类（6级：微盘/小盘/中盘/大盘/超大盘/独角兽）
 // ============================================================
-export type MarketCapTier = 'large' | 'mid' | 'small' | 'micro';
-
+export type MarketCapTier = 'unicorn' | 'mega' | 'large' | 'mid' | 'small' | 'micro';
 /**
- * 大盘股：市值 >= 1000亿美元
- * 中盘股：市值 100-1000亿美元
- * 小盘股：市值 10-100亿美元
- * 微盘股：市值 < 10亿美元 或未知
+ * 独角兽：市値 >= 5000亿美元
+ * 超大盘：市値 1000-5000亿美元
+ * 大盘股：市値 500-1000亿美元
+ * 中盘股：市値 100-500亿美元
+ * 小盘股：市値 10-100亿美元
+ * 微盘股：市値 0-10亿美元
  */
 export function getMarketCapTier(marketCap: number): MarketCapTier {
-  if (marketCap >= 1000) return 'large';
+  if (marketCap >= 5000) return 'unicorn';
+  if (marketCap >= 1000) return 'mega';
+  if (marketCap >= 500) return 'large';
   if (marketCap >= 100) return 'mid';
   if (marketCap >= 10) return 'small';
   return 'micro';
 }
-
 export const MARKET_CAP_TIER_LABELS: Record<MarketCapTier, string> = {
-  large: '大盘股 (≥1000亿美元)',
-  mid: '中盘股 (100-1000亿美元)',
-  small: '小盘股 (10-100亿美元)',
-  micro: '微盘股 (<10亿美元)',
+  unicorn: '独角兽 (5000亿+)',
+  mega: '超大盘 (1000-5000亿)',
+  large: '大盘股 (500-1000亿)',
+  mid: '中盘股 (100-500亿)',
+  small: '小盘股 (10-100亿)',
+  micro: '微盘股 (0-10亿)',
 };
 
 // ============================================================
@@ -1012,7 +1016,7 @@ export function getSectorStats(stocks: StockInfo[]): Partial<Record<StockSector,
 }
 
 export function getMarketCapTierStats(stocks: StockInfo[]): Record<MarketCapTier, number> {
-  const stats: Record<MarketCapTier, number> = { large: 0, mid: 0, small: 0, micro: 0 };
+  const stats: Record<MarketCapTier, number> = { unicorn: 0, mega: 0, large: 0, mid: 0, small: 0, micro: 0 };
   for (const stock of stocks) {
     stats[getMarketCapTier(stock.marketCap)]++;
   }

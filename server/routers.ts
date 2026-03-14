@@ -11,7 +11,7 @@ import { calculateMACD, calculateLadder, calculateCDSignals } from "./indicators
 import { getCandlesWithCache, getCacheStatus, getCacheWarmingStatus, warmCacheForSymbols } from "./cacheManager";
 import { runBacktest, STRATEGY_INFO, STRATEGY_DEFAULTS, type StrategyType, type StrategyParams } from "./backtestEngine";
 import { analyzeBacktestResult, generateGeminiStrategy, testGeminiConnection } from "./geminiStrategy";
-import { STOCK_POOL, type StockInfo } from "@shared/stockPool";
+import { STOCK_POOL, filterStocks, type StockInfo, type StockSector, type MarketCapTier } from "@shared/stockPool";
 import { SignJWT } from "jose";
 import { ENV } from "./_core/env";
 import * as XLSX from "xlsx";
@@ -130,21 +130,35 @@ export const appRouter = router({
 
   stockPool: router({
     list: publicProcedure.input(z.object({
+      // Legacy single-sector filter
       sector: z.string().optional(),
+      // New multi-select filters (叠加筛选)
+      sectors: z.array(z.string()).optional(),
+      marketCapTiers: z.array(z.string()).optional(),
+      customSymbols: z.array(z.string()).optional(),
       search: z.string().optional(),
-      minMarketCap: z.number().optional(),
-      maxMarketCap: z.number().optional(),
       page: z.number().default(1),
       pageSize: z.number().default(50),
     })).query(({ input }) => {
-      let filtered = STOCK_POOL as StockInfo[];
-      if (input.sector) filtered = filtered.filter(s => s.sectors.includes(input.sector as any));
-      if (input.search) {
-        const q = input.search.toLowerCase();
-        filtered = filtered.filter(s => s.symbol.toLowerCase().includes(q) || s.name.toLowerCase().includes(q));
+      const hasNewFilters = (input.sectors && input.sectors.length > 0) ||
+        (input.marketCapTiers && input.marketCapTiers.length > 0) ||
+        (input.customSymbols && input.customSymbols.length > 0);
+      let filtered: StockInfo[];
+      if (hasNewFilters) {
+        filtered = filterStocks(STOCK_POOL as StockInfo[], {
+          sectors: input.sectors as StockSector[],
+          marketCapTiers: input.marketCapTiers as MarketCapTier[],
+          customSymbols: input.customSymbols,
+          searchQuery: input.search,
+        });
+      } else {
+        filtered = STOCK_POOL as StockInfo[];
+        if (input.sector) filtered = filtered.filter(s => s.sectors.includes(input.sector as any));
+        if (input.search) {
+          const q = input.search.toLowerCase();
+          filtered = filtered.filter(s => s.symbol.toLowerCase().includes(q) || s.name.toLowerCase().includes(q));
+        }
       }
-      if (input.minMarketCap) filtered = filtered.filter(s => s.marketCap > 0 && s.marketCap >= input.minMarketCap!);
-      if (input.maxMarketCap) filtered = filtered.filter(s => s.marketCap > 0 && s.marketCap <= input.maxMarketCap!);
       const total = filtered.length;
       const start = (input.page - 1) * input.pageSize;
       const items = filtered.slice(start, start + input.pageSize);
@@ -366,6 +380,9 @@ export const appRouter = router({
         initialCapital: Number(s.initialCapital),
         maxPositionPct: Number(s.maxPositionPct),
         strategyParams: s.strategyParams,
+        stopLoss: (s.strategyParams as any)?.stopLossPct ?? null,
+        takeProfit: (s.strategyParams as any)?.takeProfitPct ?? null,
+        trailingStop: (s.strategyParams as any)?.trailingStopPct ?? null,
         status: s.status,
         totalReturnPct: Number(s.totalReturnPct) || 0,
         totalReturn: Number(s.totalReturn) || 0,

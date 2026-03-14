@@ -1,11 +1,14 @@
 /**
- * Cache Manager v3 - High-Performance Multi-Source Cache
+ * Cache Manager v4 - Incremental Update + High-Performance Multi-Source Cache
  *
- * Key improvements over v2:
- * 1. True concurrent fetching with configurable concurrency limit (8 parallel)
- * 2. All 9 data sources used via fetchHistoricalCandles failover chain
- * 3. Alpaca batch: up to 200 symbols per request (was 50)
- * 4. Concurrent fallback: failed symbols fetched in parallel (not serial)
+ * Key improvements over v3:
+ * 1. Incremental update: check existing cache before fetching
+ *    - Symbols with newestDate within 2 days → SKIP (already up-to-date)
+ *    - Symbols with partial cache → fetch only from newestDate+1 (incremental)
+ *    - Symbols with no cache → full historical fetch
+ * 2. True concurrent fetching with configurable concurrency limit (8 parallel)
+ * 3. Alpaca batch: up to 200 symbols per request
+ * 4. All 9 data sources used via fetchHistoricalCandles failover chain
  * 5. Concurrent DB saves: all saves happen in parallel
  * 6. Smart retry: reduced concurrency to avoid hammering APIs
  * 7. Speed tracking: symbols/second metric
@@ -25,10 +28,11 @@ import { ENV } from "./_core/env";
 // Constants
 // ============================================================
 const HISTORY_YEARS: Record<string, number> = { "1d": 10, "1h": 5, "15m": 2 };
-const MAX_RETRIES = 2;
 const CONCURRENCY = 8;           // Max parallel API requests
 const ALPACA_BATCH_SIZE = 200;   // Alpaca supports up to 200 symbols per batch
 const SAVE_BATCH_SIZE = 500;     // DB insert batch size
+// Symbols with newestDate within this many days are considered up-to-date
+const UP_TO_DATE_DAYS = 2;
 
 function formatDate(d: Date): string {
   return d.toISOString().split("T")[0];
@@ -167,6 +171,7 @@ let isCacheWarming = false;
 let cacheWarmingProgress = {
   total: 0,
   completed: 0,
+  skipped: 0,
   current: "",
   errors: 0,
   retrying: 0,
@@ -191,9 +196,6 @@ export function getCacheWarmingStatus() {
 // Concurrent batch processing
 // ============================================================
 
-/**
- * Save multiple symbols' candles to cache concurrently.
- */
 async function saveAllConcurrently(
   symbolCandles: Map<string, Candle[]>,
   timeframe: string
@@ -206,13 +208,9 @@ async function saveAllConcurrently(
   await Promise.allSettled(savePromises);
 }
 
-/**
- * Process a batch of symbols concurrently using the semaphore.
- */
 async function processConcurrentBatch(
-  symbols: string[],
+  symbolsWithDates: Array<{ symbol: string; startDate: string }>,
   timeframe: Timeframe,
-  startDate: string,
   endDate: string,
   semaphore: Semaphore,
   onSymbolDone: (symbol: string, success: boolean) => void
@@ -220,7 +218,7 @@ async function processConcurrentBatch(
   const successes = new Map<string, Candle[]>();
   const failures: string[] = [];
 
-  const tasks = symbols.map(symbol => async () => {
+  const tasks = symbolsWithDates.map(({ symbol, startDate }) => async () => {
     await semaphore.acquire();
     try {
       const candles = await fetchHistoricalCandles(symbol, timeframe, startDate, endDate);
@@ -244,18 +242,19 @@ async function processConcurrentBatch(
 }
 
 // ============================================================
-// Main warmCache function - v3 with full concurrency
+// Main warmCache function - v4 with incremental update
 // ============================================================
 export async function warmCacheForSymbols(
   symbols: string[],
   timeframes: Timeframe[] = ["1d"],
   onProgress?: (msg: string) => void
-): Promise<{ success: number; failed: number }> {
+): Promise<{ success: number; failed: number; skipped: number }> {
   if (isCacheWarming) throw new Error("Cache warming already in progress");
   isCacheWarming = true;
   cacheWarmingProgress = {
     total: symbols.length * timeframes.length,
     completed: 0,
+    skipped: 0,
     current: "初始化...",
     errors: 0,
     retrying: 0,
@@ -265,37 +264,96 @@ export async function warmCacheForSymbols(
 
   let totalSuccess = 0;
   let totalFailed = 0;
+  let totalSkipped = 0;
 
   try {
     for (const tf of timeframes) {
       const now = new Date();
       const years = HISTORY_YEARS[tf] || 5;
-      const startDate = formatDate(new Date(now.getTime() - years * 365 * 86400000));
+      const fullStartDate = formatDate(new Date(now.getTime() - years * 365 * 86400000));
       const endDate = formatDate(now);
+      const upToDateThreshold = formatDate(new Date(now.getTime() - UP_TO_DATE_DAYS * 86400000));
 
-      console.log(`[Cache v3] Starting ${tf} for ${symbols.length} symbols (concurrency=${CONCURRENCY}, alpacaBatch=${ALPACA_BATCH_SIZE})`);
-      cacheWarmingProgress.current = `${tf}: 准备批量请求 ${symbols.length} 只股票...`;
+      // -------------------------------------------------------
+      // Step 0: Load existing cache metadata for incremental logic
+      // -------------------------------------------------------
+      cacheWarmingProgress.current = `${tf}: 检查已有缓存状态...`;
       onProgress?.(cacheWarmingProgress.current);
+
+      const existingMeta = new Map<string, string>(); // symbol -> newestDate
+      try {
+        const db = await getDb();
+        if (db) {
+          const metas = await db.select({
+            symbol: cacheMetadata.symbol,
+            newestDate: cacheMetadata.newestDate,
+          }).from(cacheMetadata).where(eq(cacheMetadata.timeframe, tf));
+          for (const m of metas) {
+            if (m.newestDate) existingMeta.set(m.symbol, m.newestDate);
+          }
+        }
+      } catch { /* ignore */ }
+
+      // Classify symbols
+      const symbolsToSkip: string[] = [];
+      const symbolsToProcess: Array<{ symbol: string; startDate: string; isIncremental: boolean }> = [];
+
+      for (const sym of symbols) {
+        const newest = existingMeta.get(sym);
+        if (!newest) {
+          // Never cached → full fetch
+          symbolsToProcess.push({ symbol: sym, startDate: fullStartDate, isIncremental: false });
+        } else if (newest >= upToDateThreshold) {
+          // Already up-to-date → skip
+          symbolsToSkip.push(sym);
+        } else {
+          // Partial cache → incremental fetch from next day
+          const nextDay = formatDate(new Date(new Date(newest).getTime() + 86400000));
+          symbolsToProcess.push({ symbol: sym, startDate: nextDay, isIncremental: true });
+        }
+      }
+
+      const fullCount = symbolsToProcess.filter(s => !s.isIncremental).length;
+      const incrCount = symbolsToProcess.filter(s => s.isIncremental).length;
+      console.log(`[Cache v4] ${tf}: skip=${symbolsToSkip.length} (up-to-date), incremental=${incrCount}, full=${fullCount}`);
+
+      // Update totals
+      cacheWarmingProgress.total = symbolsToProcess.length * timeframes.length;
+      cacheWarmingProgress.skipped = symbolsToSkip.length;
+      totalSkipped += symbolsToSkip.length;
+
+      cacheWarmingProgress.current = `${tf}: 跳过${symbolsToSkip.length}只(已最新), 增量${incrCount}只, 全量${fullCount}只`;
+      onProgress?.(cacheWarmingProgress.current);
+
+      if (symbolsToProcess.length === 0) {
+        console.log(`[Cache v4] ${tf}: All symbols up-to-date, skipping.`);
+        continue;
+      }
 
       // -------------------------------------------------------
       // Phase 1: Alpaca batch (most efficient - up to 200/request)
+      // Only works for full-fetch symbols (incremental ones need per-symbol startDate)
       // -------------------------------------------------------
       const alpacaSucceeded = new Set<string>();
-      const alpacaFailed: string[] = [];
+      const alpacaFailed: Array<{ symbol: string; startDate: string }> = [];
 
-      if (ENV.alpacaApiKey && ENV.alpacaSecretKey) {
-        const totalBatches = Math.ceil(symbols.length / ALPACA_BATCH_SIZE);
-        cacheWarmingProgress.current = `${tf}: Alpaca 批量 (${totalBatches} 批, 每批最多 ${ALPACA_BATCH_SIZE} 只)...`;
+      // Separate full-fetch (can batch) from incremental (must be individual)
+      const batchableSymbols = symbolsToProcess.filter(s => !s.isIncremental).map(s => s.symbol);
+      const incrementalSymbols = symbolsToProcess.filter(s => s.isIncremental);
+
+      if (ENV.alpacaApiKey && ENV.alpacaSecretKey && batchableSymbols.length > 0) {
+        const totalBatches = Math.ceil(batchableSymbols.length / ALPACA_BATCH_SIZE);
+        cacheWarmingProgress.current = `${tf}: Alpaca 批量全量 (${totalBatches} 批, 每批最多 ${ALPACA_BATCH_SIZE} 只)...`;
         onProgress?.(cacheWarmingProgress.current);
 
-        for (let i = 0; i < symbols.length; i += ALPACA_BATCH_SIZE) {
-          const batch = symbols.slice(i, i + ALPACA_BATCH_SIZE);
+        for (let i = 0; i < batchableSymbols.length; i += ALPACA_BATCH_SIZE) {
+          const batch = batchableSymbols.slice(i, i + ALPACA_BATCH_SIZE);
           const batchNum = Math.floor(i / ALPACA_BATCH_SIZE) + 1;
           cacheWarmingProgress.current = `${tf}: Alpaca 批次 ${batchNum}/${totalBatches} (${batch.length} 只)`;
           onProgress?.(cacheWarmingProgress.current);
 
           try {
-            const batchResult = await fetchAlpacaBatchCandles(batch, tf, startDate, endDate);
+            const batchResult = await fetchAlpacaBatchCandles(batch, tf, fullStartDate, endDate);
             const saveMap = new Map<string, Candle[]>();
 
             for (const [sym, candles] of Array.from(batchResult.entries())) {
@@ -303,14 +361,13 @@ export async function warmCacheForSymbols(
                 saveMap.set(sym, candles);
                 alpacaSucceeded.add(sym);
               } else {
-                alpacaFailed.push(sym);
+                alpacaFailed.push({ symbol: sym, startDate: fullStartDate });
               }
             }
             for (const sym of batch) {
-              if (!batchResult.has(sym)) alpacaFailed.push(sym);
+              if (!batchResult.has(sym)) alpacaFailed.push({ symbol: sym, startDate: fullStartDate });
             }
 
-            // Save all in parallel
             await saveAllConcurrently(saveMap, tf);
             cacheWarmingProgress.completed += batch.length;
             totalSuccess += saveMap.size;
@@ -321,37 +378,42 @@ export async function warmCacheForSymbols(
             cacheWarmingProgress.sourceStats["alpaca"].success += saveMap.size;
             cacheWarmingProgress.sourceStats["alpaca"].failed += (batch.length - saveMap.size);
 
-            console.log(`[Cache v3] Alpaca batch ${batchNum}/${totalBatches}: ${saveMap.size}/${batch.length} succeeded`);
+            console.log(`[Cache v4] Alpaca batch ${batchNum}/${totalBatches}: ${saveMap.size}/${batch.length} succeeded`);
           } catch (err) {
-            console.error(`[Cache v3] Alpaca batch ${batchNum} failed:`, err);
-            for (const sym of batch) alpacaFailed.push(sym);
+            console.error(`[Cache v4] Alpaca batch ${batchNum} failed:`, err);
+            for (const sym of batch) alpacaFailed.push({ symbol: sym, startDate: fullStartDate });
             cacheWarmingProgress.completed += batch.length;
           }
 
-          // Minimal delay between Alpaca batches
-          if (i + ALPACA_BATCH_SIZE < symbols.length) {
+          if (i + ALPACA_BATCH_SIZE < batchableSymbols.length) {
             await new Promise(r => setTimeout(r, 150));
           }
         }
 
-        console.log(`[Cache v3] Alpaca phase done: ${alpacaSucceeded.size} succeeded, ${alpacaFailed.length} need fallback`);
+        console.log(`[Cache v4] Alpaca phase done: ${alpacaSucceeded.size} succeeded, ${alpacaFailed.length} need fallback`);
       } else {
-        // No Alpaca keys - all symbols need fallback
-        for (const sym of symbols) alpacaFailed.push(sym);
-        cacheWarmingProgress.completed += symbols.length;
+        // No Alpaca keys - all batchable symbols need fallback
+        for (const sym of batchableSymbols) alpacaFailed.push({ symbol: sym, startDate: fullStartDate });
+        cacheWarmingProgress.completed += batchableSymbols.length;
       }
 
       // -------------------------------------------------------
-      // Phase 2: Concurrent fallback for Alpaca failures
+      // Phase 2: Concurrent fallback for Alpaca failures + all incremental symbols
       // Uses all other sources (Tiingo, Yahoo, Stooq, Finnhub, Polygon, etc.)
       // -------------------------------------------------------
-      if (alpacaFailed.length > 0) {
-        const uniqueFailed = Array.from(new Set(alpacaFailed));
-        console.log(`[Cache v3] Fallback phase: ${uniqueFailed.length} symbols, concurrency=${CONCURRENCY}`);
+      const fallbackSymbols = [...alpacaFailed, ...incrementalSymbols];
 
-        // Reset completed count for fallback (we already counted these in Alpaca phase)
-        cacheWarmingProgress.completed -= uniqueFailed.length;
-        cacheWarmingProgress.current = `${tf}: 并发补充 ${uniqueFailed.length} 只 (并发=${CONCURRENCY})...`;
+      if (fallbackSymbols.length > 0) {
+        const uniqueFallback = Array.from(
+          new Map(fallbackSymbols.map(s => [s.symbol, s])).values()
+        );
+        console.log(`[Cache v4] Fallback phase: ${uniqueFallback.length} symbols (${incrementalSymbols.length} incremental), concurrency=${CONCURRENCY}`);
+
+        // Adjust completed count (Alpaca phase already counted these)
+        const alpacaFailedSymbols = new Set(alpacaFailed.map(s => s.symbol));
+        cacheWarmingProgress.completed -= alpacaFailed.length;
+
+        cacheWarmingProgress.current = `${tf}: 并发补充 ${uniqueFallback.length} 只 (并发=${CONCURRENCY})...`;
         onProgress?.(cacheWarmingProgress.current);
 
         const semaphore = new Semaphore(CONCURRENCY);
@@ -359,9 +421,8 @@ export async function warmCacheForSymbols(
         let fallbackFailed = 0;
 
         const { successes, failures } = await processConcurrentBatch(
-          uniqueFailed,
+          uniqueFallback,
           tf,
-          startDate,
           endDate,
           semaphore,
           (symbol, success) => {
@@ -381,7 +442,6 @@ export async function warmCacheForSymbols(
           }
         );
 
-        // Save fallback results concurrently
         if (successes.size > 0) {
           await saveAllConcurrently(successes, tf);
         }
@@ -390,25 +450,25 @@ export async function warmCacheForSymbols(
         totalFailed += fallbackFailed;
         cacheWarmingProgress.errors = totalFailed;
 
-        console.log(`[Cache v3] Fallback phase done: ${fallbackSuccess} succeeded, ${fallbackFailed} failed`);
+        console.log(`[Cache v4] Fallback phase done: ${fallbackSuccess} succeeded, ${fallbackFailed} failed`);
 
         // -------------------------------------------------------
-        // Phase 3: Concurrent retry for permanently failed symbols
+        // Phase 3: Retry for permanently failed symbols
         // -------------------------------------------------------
         if (failures.length > 0) {
           cacheWarmingProgress.retrying = failures.length;
           cacheWarmingProgress.current = `${tf}: 重试 ${failures.length} 只失败股票...`;
           onProgress?.(cacheWarmingProgress.current);
 
-          console.log(`[Cache v3] Retry phase: ${failures.length} symbols`);
+          console.log(`[Cache v4] Retry phase: ${failures.length} symbols`);
 
-          // Use reduced concurrency for retry
           const retrySemaphore = new Semaphore(Math.max(2, Math.floor(CONCURRENCY / 2)));
+          // For retry, use full start date
+          const retrySymbols = failures.map(sym => ({ symbol: sym, startDate: fullStartDate }));
 
           const { successes: retrySuccesses, failures: finalFailures } = await processConcurrentBatch(
-            failures,
+            retrySymbols,
             tf,
-            startDate,
             endDate,
             retrySemaphore,
             (symbol, success) => {
@@ -432,7 +492,7 @@ export async function warmCacheForSymbols(
           totalFailed = finalFailures.length;
           cacheWarmingProgress.errors = totalFailed;
 
-          console.log(`[Cache v3] Retry phase done: ${retrySuccesses.size} recovered, ${finalFailures.length} permanently failed`);
+          console.log(`[Cache v4] Retry phase done: ${retrySuccesses.size} recovered, ${finalFailures.length} permanently failed`);
         }
       }
     }
@@ -440,12 +500,12 @@ export async function warmCacheForSymbols(
     isCacheWarming = false;
     const elapsed = Math.round((Date.now() - cacheWarmingProgress.startTime) / 1000);
     cacheWarmingProgress.current = totalFailed > 0
-      ? `完成: ${totalSuccess} 成功, ${totalFailed} 失败 (耗时 ${elapsed}s)`
-      : `全部完成: ${totalSuccess} 个 (耗时 ${elapsed}s)`;
-    console.log(`[Cache v3] Warming complete: ${totalSuccess} success, ${totalFailed} failed, ${elapsed}s elapsed`);
+      ? `完成: ${totalSuccess} 成功, ${totalSkipped} 跳过(已最新), ${totalFailed} 失败 (耗时 ${elapsed}s)`
+      : `全部完成: ${totalSuccess} 成功, ${totalSkipped} 跳过(已最新) (耗时 ${elapsed}s)`;
+    console.log(`[Cache v4] Warming complete: ${totalSuccess} success, ${totalSkipped} skipped, ${totalFailed} failed, ${elapsed}s elapsed`);
   }
 
-  return { success: totalSuccess, failed: totalFailed };
+  return { success: totalSuccess, failed: totalFailed, skipped: totalSkipped };
 }
 
 // ============================================================
@@ -470,6 +530,7 @@ export async function getCacheStatus(): Promise<Array<{
 /**
  * Get candles with cache-first strategy.
  * Has a 30s total timeout to prevent hanging on slow/failing data sources.
+ * Uses incremental fetch: if cache exists but is stale, only fetches missing days.
  */
 export async function getCandlesWithCache(
   symbol: string, timeframe: Timeframe, startDate?: string, endDate?: string
@@ -481,10 +542,34 @@ export async function getCandlesWithCache(
   // Try cache first (fast path)
   try {
     const cached = await getCandlesFromCache(symbol, timeframe, sd, ed);
-    if (cached && cached.length > 50) return cached;
+    if (cached && cached.length > 50) {
+      // Check if cache is stale (newest date older than 2 days)
+      const newestCached = cached[cached.length - 1];
+      const newestDate = new Date(newestCached.time);
+      const twoDaysAgo = new Date(now.getTime() - 2 * 86400000);
+      if (newestDate >= twoDaysAgo) {
+        return cached; // Cache is fresh, return directly
+      }
+      // Cache is stale: fetch only the missing days
+      try {
+        const nextDay = formatDate(new Date(newestDate.getTime() + 86400000));
+        const timeoutPromise = new Promise<Candle[]>((_, reject) =>
+          setTimeout(() => reject(new Error(`Timeout`)), 15000)
+        );
+        const newCandles = await Promise.race([
+          fetchHistoricalCandles(symbol, timeframe, nextDay, ed),
+          timeoutPromise,
+        ]);
+        if (newCandles.length > 0) {
+          saveCandlesToCache(symbol, timeframe, newCandles).catch(() => {});
+          return [...cached, ...newCandles];
+        }
+      } catch { /* ignore incremental fetch error, return cached */ }
+      return cached;
+    }
   } catch { /* ignore cache errors */ }
 
-  // Fetch from API with 30s timeout
+  // No cache: full fetch with 30s timeout
   try {
     const timeoutPromise = new Promise<Candle[]>((_, reject) =>
       setTimeout(() => reject(new Error(`Timeout fetching ${symbol}/${timeframe}`)), 30000)

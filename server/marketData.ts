@@ -230,10 +230,13 @@ async function fetchYahooCandles(symbol: string, timeframe: Timeframe, startDate
     try {
       res = await axios.get(url, {
         params: { interval, range },
-        timeout: 8000,
+        timeout: 10000,
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          Accept: "application/json",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+          Accept: "application/json,text/plain,*/*",
+          "Accept-Language": "en-US,en;q=0.9",
+          "Accept-Encoding": "gzip, deflate, br",
+          Referer: "https://finance.yahoo.com/",
         },
       });
       if (res.data?.chart?.result?.[0]) break;
@@ -415,7 +418,7 @@ async function fetchMarketStackCandles(symbol: string, timeframe: Timeframe, sta
   const limit = 1000;
 
   while (true) {
-    const res: any = await axios.get("http://api.marketstack.com/v1/eod", {
+    const res: any = await axios.get("https://api.marketstack.com/v1/eod", {
       params: { access_key: apiKey, symbols: symbol, date_from, date_to, limit, offset },
       timeout: 8000,
     });
