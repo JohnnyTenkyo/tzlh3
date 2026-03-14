@@ -543,6 +543,42 @@ export async function fetchHistoricalCandles(symbol: string, timeframe: Timefram
   return candles.filter(c => Number.isFinite(c.time) && c.time >= startTs && c.time <= endTs).sort((a, b) => a.time - b.time);
 }
 
+// Map of source name → fetch function for manual testing
+const SOURCE_FETCH_MAP: Record<DataSource, Function> = {
+  alpaca: fetchAlpacaCandles,
+  stooq: fetchStooqCandles,
+  yahoo: fetchYahooCandles,
+  tiingo: fetchTiingoDailyCandles,
+  finnhub: fetchFinnhubCandles,
+  alphavantage: fetchAlphaVantageCandles,
+  polygon: fetchPolygonCandles,
+  twelvedata: fetchTwelveDataCandles,
+  marketstack: fetchMarketStackCandles,
+};
+
+export async function testDataSource(
+  source: DataSource,
+  symbol = "AAPL"
+): Promise<{ success: boolean; candleCount: number; latency: number; error?: string }> {
+  const fn = SOURCE_FETCH_MAP[source];
+  if (!fn) return { success: false, candleCount: 0, latency: 0, error: `Unknown source: ${source}` };
+  const start = Date.now();
+  try {
+    const end = new Date().toISOString().slice(0, 10);
+    const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const candles = await fn(symbol, "1d", startDate, end);
+    const latency = Date.now() - start;
+    const ok = Array.isArray(candles) && candles.length > 0;
+    await recordHealth(source, "1d", ok, ok ? undefined : "No candles returned");
+    return { success: ok, candleCount: ok ? candles.length : 0, latency };
+  } catch (err) {
+    const latency = Date.now() - start;
+    const msg = err instanceof Error ? err.message : String(err);
+    await recordHealth(source, "1d", false, msg);
+    return { success: false, candleCount: 0, latency, error: msg };
+  }
+}
+
 export async function fetchQuote(symbol: string): Promise<{ price: number; change: number; changePercent: number }> {
   try {
     const apiKey = ENV.alpacaApiKey;

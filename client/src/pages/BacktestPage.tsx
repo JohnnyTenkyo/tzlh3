@@ -247,6 +247,21 @@ function RiskParamPanel({
   );
 }
 
+// ─── Stock Pool Preset helpers ───────────────────────────────────────────────────
+const PRESET_STORAGE_KEY = "tzlh_stock_pool_presets_v1";
+interface StockPoolPreset {
+  id: string;
+  name: string;
+  sectors: StockSector[];
+  capTiers: MarketCapTier[];
+  createdAt: number;
+}
+function loadPresets(): StockPoolPreset[] {
+  try { return JSON.parse(localStorage.getItem(PRESET_STORAGE_KEY) || "[]"); } catch { return []; }
+}
+function savePresetsToStorage(presets: StockPoolPreset[]) {
+  localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(presets));
+}
 // ─── Stock Pool Selector (Multi-select overlapping) ───────────────────────────
 function StockPoolSelector({ selectedSymbols, onChange }: { selectedSymbols: string[]; onChange: (s: string[]) => void }) {
   const [selectedSectors, setSelectedSectors] = useState<StockSector[]>([]);
@@ -255,6 +270,9 @@ function StockPoolSelector({ selectedSymbols, onChange }: { selectedSymbols: str
   const [searchQuery, setSearchQuery] = useState("");
   const [showPreview, setShowPreview] = useState(false);
   const [useCustom, setUseCustom] = useState(false);
+  const [presets, setPresets] = useState<StockPoolPreset[]>(() => loadPresets());
+  const [showPresetPanel, setShowPresetPanel] = useState(false);
+  const [presetName, setPresetName] = useState("");
 
   const sectorStats = useMemo(() => {
     const counts: Partial<Record<StockSector, number>> = {};
@@ -308,6 +326,37 @@ function StockPoolSelector({ selectedSymbols, onChange }: { selectedSymbols: str
     setUseCustom(false);
   };
 
+  const savePreset = () => {
+    const name = presetName.trim();
+    if (!name) { toast.error("请输入预设名称"); return; }
+    if (selectedSectors.length === 0 && selectedCapTiers.length === 0) { toast.error("请先选择至少一个板块或市值区间"); return; }
+    const newPreset: StockPoolPreset = {
+      id: Date.now().toString(),
+      name,
+      sectors: [...selectedSectors],
+      capTiers: [...selectedCapTiers],
+      createdAt: Date.now(),
+    };
+    const updated = [...presets, newPreset];
+    setPresets(updated);
+    savePresetsToStorage(updated);
+    setPresetName("");
+    toast.success(`预设「${name}」已保存`);
+  };
+
+  const loadPreset = (preset: StockPoolPreset) => {
+    setSelectedSectors(preset.sectors);
+    setSelectedCapTiers(preset.capTiers);
+    setUseCustom(false);
+    toast.success(`已加载预设「${preset.name}」`);
+  };
+
+  const deletePreset = (id: string) => {
+    const updated = presets.filter(p => p.id !== id);
+    setPresets(updated);
+    savePresetsToStorage(updated);
+  };
+
   const ALL_TIERS: MarketCapTier[] = ['unicorn', 'mega', 'large', 'mid', 'small', 'micro'];
   const TIER_COLORS: Record<MarketCapTier, string> = {
     unicorn: "#f97316",
@@ -324,11 +373,68 @@ function StockPoolSelector({ selectedSymbols, onChange }: { selectedSymbols: str
         <CardTitle className="text-sm flex items-center gap-2">
           <Filter className="w-4 h-4 text-primary" />
           股票池筛选
-          <Badge variant="secondary" className="ml-auto text-xs">{selectedSymbols.length} 只已选</Badge>
+          <div className="ml-auto flex items-center gap-1.5">
+            <button
+              onClick={() => setShowPresetPanel(!showPresetPanel)}
+              className={`flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border transition-colors ${
+                showPresetPanel ? "border-primary text-primary bg-primary/10" : "border-border/50 text-muted-foreground hover:border-primary/50 hover:text-primary"
+              }`}
+            >
+              <Settings2 className="w-3 h-3" />
+              预设{presets.length > 0 && <span className="ml-0.5 bg-primary/20 text-primary rounded-full px-1">{presets.length}</span>}
+            </button>
+            <Badge variant="secondary" className="text-xs">{selectedSymbols.length} 只已选</Badge>
+          </div>
         </CardTitle>
         <CardDescription className="text-xs">支持行业板块 + 市值区间多选叠加筛选（AND 逻辑）</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
+        {/* Preset Panel */}
+        {showPresetPanel && (
+          <div className="border border-border/50 rounded-lg p-3 space-y-2 bg-muted/20">
+            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">筛选预设管理</p>
+            {/* Saved presets list */}
+            {presets.length > 0 ? (
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {presets.map(p => (
+                  <div key={p.id} className="flex items-center gap-2 group">
+                    <button
+                      onClick={() => loadPreset(p)}
+                      className="flex-1 text-left px-2 py-1.5 rounded text-xs border border-border/40 hover:border-primary/50 hover:bg-primary/5 transition-colors"
+                    >
+                      <span className="font-medium text-foreground">{p.name}</span>
+                      <span className="ml-2 text-muted-foreground text-[10px]">
+                        {p.sectors.map(s => SECTOR_LABELS[s]).join("+")}
+                        {p.capTiers.length > 0 && ` · ${p.capTiers.map(t => MARKET_CAP_TIER_LABELS[t].split(" ")[0]).join("+")}`}
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => deletePreset(p.id)}
+                      className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all p-1"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[10px] text-muted-foreground text-center py-2">暂无预设，请先设置筛选条件并保存</p>
+            )}
+            {/* Save current as preset */}
+            <div className="flex gap-1.5 pt-1 border-t border-border/30">
+              <Input
+                placeholder="预设名称（如：大盘科技股）"
+                value={presetName}
+                onChange={e => setPresetName(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && savePreset()}
+                className="h-7 text-xs flex-1"
+              />
+              <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" onClick={savePreset}>
+                保存当前
+              </Button>
+            </div>
+          </div>
+        )}
         {/* Sector multi-select */}
         <div>
           <div className="flex items-center justify-between mb-1.5">

@@ -115,3 +115,10 @@
 - [x] compareRecords 接口：返回 stopLoss/takeProfit/trailingStop 字段
 - [x] cacheManager.ts v4：增量更新已实现（已缓存历史数据固定保存，只补充新K线）
 - [ ] 数据源补充方案：排查 Stooq/Yahoo/MarketStack 失败原因，考虑添加备用源
+
+## 第七轮：对比表格止盈止损列 + 股票池预设 + 数据源手动测试
+- [x] BacktestPage.tsx：历史记录对比表格止损/止盈/移动止损列（已存在，数据格式已验证）
+- [x] BacktestPage.tsx：股票池筛选预设保存/加载（localStorage，支持命名、删除，预设面板内嵌在筛选卡片中）
+- [x] marketData.ts：添加 testDataSource 导出函数（映射各源fetch函数，拉取30天日K线验证）
+- [x] routers.ts：添加 health.testSource mutation 接口
+- [x] HealthPage.tsx：重构为 SourceCard 组件，每个数据源卡片添加「测试」按钮，显示 K线数/耗时/错误信息

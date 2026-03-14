@@ -6,7 +6,8 @@ import { z } from "zod";
 import { getDb, registerUser, verifyPassword, changePassword } from "./db";
 import { backtestSessions, backtestTrades, dataSourceHealth } from "../drizzle/schema";
 import { eq, desc, inArray } from "drizzle-orm";
-import type { Timeframe } from "./marketData";
+import type { Timeframe, DataSource } from "./marketData";
+import { testDataSource } from "./marketData";
 import { calculateMACD, calculateLadder, calculateCDSignals } from "./indicators";
 import { getCandlesWithCache, getCacheStatus, getCacheWarmingStatus, warmCacheForSymbols } from "./cacheManager";
 import { runBacktest, STRATEGY_INFO, STRATEGY_DEFAULTS, type StrategyType, type StrategyParams } from "./backtestEngine";
@@ -461,6 +462,15 @@ export const appRouter = router({
         activeProvider: results.gemini ? "gemini" : results.openai ? "openai" : "none",
       };
     }),
+    testSource: publicProcedure
+      .input(z.object({
+        source: z.enum(["alpaca", "stooq", "yahoo", "tiingo", "finnhub", "alphavantage", "polygon", "twelvedata", "marketstack"]),
+        symbol: z.string().default("AAPL"),
+      }))
+      .mutation(async ({ input }) => {
+        const result = await testDataSource(input.source as DataSource, input.symbol);
+        return result;
+      }),
   }),
 });
 

@@ -1,8 +1,92 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState } from "react";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
-import { Activity, RefreshCw, Cpu, CheckCircle, XCircle, AlertCircle, Zap } from "lucide-react";
+import { Activity, RefreshCw, Cpu, CheckCircle, XCircle, AlertCircle, Zap, Play, Clock } from "lucide-react";
+import { toast } from "sonner";
+
+type TestResult = { success: boolean; candleCount: number; latency: number; error?: string };
+
+function SourceCard({
+  sourceKey, info, record, getStatusIcon, getStatusBadge,
+}: {
+  sourceKey: string;
+  info: { description: string; tier: string; rateLimit: string };
+  record: any;
+  getStatusIcon: (r: any) => React.ReactNode;
+  getStatusBadge: (r: any) => React.ReactNode;
+}) {
+  const [testSymbol, setTestSymbol] = useState("AAPL");
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const [isTesting, setIsTesting] = useState(false);
+  const utils = trpc.useUtils();
+  const testMutation = trpc.health.testSource.useMutation({
+    onSuccess: (result) => {
+      setTestResult(result);
+      setIsTesting(false);
+      if (result.success) toast.success(`${sourceKey} 测试成功：${result.candleCount} 根K线，耗时 ${result.latency}ms`);
+      else toast.error(`${sourceKey} 测试失败：${result.error || "无数据返回"}`);
+      utils.health.sources.invalidate();
+    },
+    onError: (err) => { setIsTesting(false); toast.error(`${sourceKey} 测试出错：${err.message}`); },
+  });
+  const handleTest = () => {
+    setIsTesting(true);
+    setTestResult(null);
+    testMutation.mutate({ source: sourceKey as any, symbol: testSymbol || "AAPL" });
+  };
+  return (
+    <Card className="bg-card border-border">
+      <CardContent className="pt-4 pb-4">
+        <div className="flex items-start justify-between mb-2">
+          <div className="flex items-center gap-2">
+            {getStatusIcon(record || {})}
+            <span className="font-medium text-sm capitalize">{sourceKey}</span>
+          </div>
+          {getStatusBadge(record || {})}
+        </div>
+        <p className="text-xs text-muted-foreground mb-3">{info.description}</p>
+        <div className="grid grid-cols-2 gap-2 text-xs mb-3">
+          <div><span className="text-muted-foreground">类型: </span><Badge variant="outline" className="text-xs h-4">{info.tier}</Badge></div>
+          <div><span className="text-muted-foreground">限速: </span><span className="text-foreground">{info.rateLimit}</span></div>
+          {record && (
+            <>
+              <div><span className="text-muted-foreground">成功: </span><span className="text-green-400">{record.successCount || 0}</span></div>
+              <div><span className="text-muted-foreground">失败: </span><span className="text-red-400">{record.failCount || 0}</span></div>
+              {record.lastError && (
+                <div className="col-span-2">
+                  <span className="text-muted-foreground">最近错误: </span>
+                  <span className="text-red-400 text-xs truncate block" title={record.lastError}>{record.lastError}</span>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        <div className="border-t border-border/30 pt-2.5 space-y-2">
+          <div className="flex gap-1.5">
+            <Input value={testSymbol} onChange={e => setTestSymbol(e.target.value.toUpperCase())}
+              placeholder="股票代码" className="h-6 text-xs flex-1 font-mono"
+              onKeyDown={e => e.key === "Enter" && handleTest()} />
+            <Button size="sm" variant="outline" className="h-6 text-xs px-2 shrink-0" onClick={handleTest} disabled={isTesting}>
+              {isTesting ? <RefreshCw className="w-3 h-3 animate-spin" /> : <><Play className="w-3 h-3 mr-1" />测试</>}
+            </Button>
+          </div>
+          {testResult && (
+            <div className={`text-[10px] px-2 py-1.5 rounded flex items-center gap-2 ${
+              testResult.success ? "bg-green-500/10 text-green-400 border border-green-500/20" : "bg-red-500/10 text-red-400 border border-red-500/20"
+            }`}>
+              {testResult.success ? <CheckCircle className="w-3 h-3 shrink-0" /> : <XCircle className="w-3 h-3 shrink-0" />}
+              <span className="flex-1 truncate">{testResult.success ? `成功 · ${testResult.candleCount} 根K线` : (testResult.error || "无数据返回")}</span>
+              <span className="flex items-center gap-0.5 shrink-0 opacity-70"><Clock className="w-2.5 h-2.5" />{testResult.latency}ms</span>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 const SOURCE_INFO: Record<string, { description: string; tier: string; rateLimit: string }> = {
   alpaca: { description: "Alpaca Markets - 实时/历史数据", tier: "付费", rateLimit: "200/min" },
@@ -195,49 +279,24 @@ export default function HealthPage() {
       </div>
 
       {/* Sources Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {allSources.map(({ key, info, record }) => (
-          <Card key={key} className="bg-card border-border">
-            <CardContent className="pt-4 pb-4">
-              <div className="flex items-start justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  {getStatusIcon(record || {})}
-                  <span className="font-medium text-sm capitalize">{key}</span>
-                </div>
-                {getStatusBadge(record || {})}
-              </div>
-              <p className="text-xs text-muted-foreground mb-3">{info.description}</p>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <span className="text-muted-foreground">类型: </span>
-                  <Badge variant="outline" className="text-xs h-4">{info.tier}</Badge>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">限速: </span>
-                  <span className="text-foreground">{info.rateLimit}</span>
-                </div>
-                {record && (
-                  <>
-                    <div>
-                      <span className="text-muted-foreground">成功: </span>
-                      <span className="text-green-400">{record.successCount || 0}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">失败: </span>
-                      <span className="text-red-400">{record.failCount || 0}</span>
-                    </div>
-                    {record.lastError && (
-                      <div className="col-span-2">
-                        <span className="text-muted-foreground">最近错误: </span>
-                        <span className="text-red-400 text-xs truncate block">{record.lastError}</span>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <Activity className="h-4 w-4 text-primary" />
+          <h2 className="text-sm font-medium">数据源状态</h2>
+          <span className="text-xs text-muted-foreground">输入股票代码并点击「测试」可实时验证数据源可用性</span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {allSources.map(({ key, info, record }) => (
+            <SourceCard
+              key={key}
+              sourceKey={key}
+              info={info}
+              record={record}
+              getStatusIcon={getStatusIcon}
+              getStatusBadge={getStatusBadge}
+            />
+          ))}
+        </div>
       </div>
 
       <Card className="bg-card border-border">
@@ -247,6 +306,7 @@ export default function HealthPage() {
             <div className="text-xs text-muted-foreground space-y-1">
               <p><strong className="text-foreground">数据源优先级：</strong>Alpaca (最优) → Tiingo → Finnhub → AlphaVantage → Polygon → TwelveData → Stooq → Yahoo → MarketStack</p>
               <p>系统自动按优先级尝试各数据源，失败时自动切换到下一个，确保数据获取的高可用性。</p>
+              <p><strong className="text-foreground">手动测试说明：</strong>每个数据源卡片底部可输入股票代码（默认 AAPL）并点击「测试」按钮，实时拉取最近30天日K线验证该源可用性，测试结果会更新到健康记录中。</p>
               <p><strong className="text-foreground">免费配额说明：</strong>Polygon/TwelveData/MarketStack 为额外免费备用数据源，每月/每分钟有请求限制，建议优先使用 Alpaca/Tiingo/Finnhub。</p>
             </div>
           </div>
