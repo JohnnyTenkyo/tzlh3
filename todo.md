@@ -122,3 +122,8 @@
 - [x] marketData.ts：添加 testDataSource 导出函数（映射各源fetch函数，拉取30天日K线验证）
 - [x] routers.ts：添加 health.testSource mutation 接口
 - [x] HealthPage.tsx：重构为 SourceCard 组件，每个数据源卡片添加「测试」按钮，显示 K线数/耗时/错误信息
+
+## 第八轮：回测启动反馈修复
+- [x] BacktestPage.tsx：单策略回测 onSuccess 添加 toast 提示"回测已启动"，600ms 后跳转到详情页
+- [x] BacktestPage.tsx：多策略对比 onSuccess 添加 toast 提示已启动数量，自动切换到历史记录 Tab
+- [x] BacktestPage.tsx：将 Tabs 改为受控模式（activeConfigTab state），支持代码自动切换 Tab

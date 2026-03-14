@@ -738,6 +738,7 @@ export default function BacktestPage() {
   // Multi-strategy compare mode
   const [compareMode, setCompareMode] = useState(false);
   const [compareStrategies, setCompareStrategies] = useState<StrategyKey[]>(["standard", "aggressive"]);
+  const [activeConfigTab, setActiveConfigTab] = useState("config");
 
   const { data: strategiesData } = trpc.backtest.strategies.useQuery();
   const { data: historyData, isLoading: historyLoading } = trpc.backtest.list.useQuery(undefined, {
@@ -746,18 +747,20 @@ export default function BacktestPage() {
 
   const createMutation = trpc.backtest.create.useMutation({
     onSuccess: ({ sessionId }) => {
-      toast.success("回测已启动！");
+      toast.success("回测已启动！正在跳转到详情页...", { duration: 3000 });
       utils.backtest.list.invalidate();
-      navigate(`/backtest/${sessionId}`);
+      setTimeout(() => navigate(`/backtest/${sessionId}`), 600);
     },
-    onError: (err: any) => toast.error(err.message),
+    onError: (err: any) => toast.error(`回测启动失败：${err.message}`),
   });
 
   const compareStrategiesMutation = trpc.backtest.compareStrategies.useMutation({
-    onSuccess: () => {
+    onSuccess: (data) => {
+      toast.success(`✅ ${data.count} 个策略对比回测已启动！可在历史记录中查看进度`, { duration: 4000 });
       utils.backtest.list.invalidate();
+      setActiveConfigTab("history");
     },
-    onError: (err: any) => toast.error(err.message),
+    onError: (err: any) => toast.error(`对比回测启动失败：${err.message}`),
   });
 
   const deleteMutation = trpc.backtest.delete.useMutation({
@@ -863,7 +866,7 @@ export default function BacktestPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* ── Left: Config (2/3 width) ── */}
         <div className="lg:col-span-2">
-          <Tabs defaultValue="config">
+          <Tabs value={activeConfigTab} onValueChange={setActiveConfigTab}>
             <TabsList className="grid grid-cols-3 w-full">
               <TabsTrigger value="config">基础配置</TabsTrigger>
               <TabsTrigger value="params">
