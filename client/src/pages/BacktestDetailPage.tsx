@@ -349,9 +349,11 @@ export default function BacktestDetailPage() {
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-border text-muted-foreground">
-                  <th className="text-left py-2 pr-3">时间</th>
+                  <th className="text-left py-2 pr-3 whitespace-nowrap">时间</th>
                   <th className="text-left py-2 pr-3">股票</th>
                   <th className="text-left py-2 pr-3">方向</th>
+                  <th className="text-left py-2 pr-3">信号类型</th>
+                  <th className="text-left py-2 pr-3 min-w-[200px]">买卖理由</th>
                   <th className="text-right py-2 pr-3">数量</th>
                   <th className="text-right py-2 pr-3">价格</th>
                   <th className="text-right py-2 pr-3">金额</th>
@@ -373,6 +375,34 @@ export default function BacktestDetailPage() {
                         <Badge variant={trade.side === "buy" ? "default" : "secondary"} className="text-xs h-4">
                           {trade.side === "buy" ? "买入" : "卖出"}
                         </Badge>
+                      </td>
+                      {/* Signal type column */}
+                      <td className="py-1.5 pr-3">
+                        {(trade as any).signalType ? (
+                          <Badge variant="outline" className={`text-[10px] h-4 px-1 whitespace-nowrap ${
+                            String((trade as any).signalType).includes('buy') || String((trade as any).signalType).includes('entry')
+                              ? 'border-green-500/50 text-green-400'
+                              : String((trade as any).signalType).includes('stop_loss') ? 'border-red-500/50 text-red-400'
+                              : String((trade as any).signalType).includes('take_profit') ? 'border-yellow-500/50 text-yellow-400'
+                              : String((trade as any).signalType).includes('trailing') ? 'border-orange-500/50 text-orange-400'
+                              : 'border-border/50 text-muted-foreground'
+                          }`}>
+                            {String((trade as any).signalType).replace(/_/g, ' ')}
+                          </Badge>
+                        ) : <span className="text-muted-foreground text-[10px]">-</span>}
+                      </td>
+                      {/* Reason column */}
+                      <td className="py-1.5 pr-3 max-w-[220px]">
+                        {(trade as any).reason ? (
+                          <span
+                            className="text-[10px] text-muted-foreground leading-tight block cursor-help"
+                            title={(trade as any).reason}
+                          >
+                            {String((trade as any).reason).length > 55
+                              ? String((trade as any).reason).slice(0, 55) + '…'
+                              : String((trade as any).reason)}
+                          </span>
+                        ) : <span className="text-muted-foreground text-[10px]">-</span>}
                       </td>
                       <td className="py-1.5 pr-3 text-right">{Number(trade.quantity).toFixed(0)}</td>
                       <td className="py-1.5 pr-3 text-right">${Number(trade.price).toFixed(2)}</td>

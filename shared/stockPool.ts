@@ -912,3 +912,109 @@ export const MARKET_CAP_LABELS: Record<string, string> = {
   '100b': '1000亿美元以上',
   '500b': '5000亿美元以上',
 };
+
+// ============================================================
+// 市值分类（大/中/小盘）
+// ============================================================
+export type MarketCapTier = 'large' | 'mid' | 'small' | 'micro';
+
+/**
+ * 大盘股：市值 >= 1000亿美元
+ * 中盘股：市值 100-1000亿美元
+ * 小盘股：市值 10-100亿美元
+ * 微盘股：市值 < 10亿美元 或未知
+ */
+export function getMarketCapTier(marketCap: number): MarketCapTier {
+  if (marketCap >= 1000) return 'large';
+  if (marketCap >= 100) return 'mid';
+  if (marketCap >= 10) return 'small';
+  return 'micro';
+}
+
+export const MARKET_CAP_TIER_LABELS: Record<MarketCapTier, string> = {
+  large: '大盘股 (≥1000亿美元)',
+  mid: '中盘股 (100-1000亿美元)',
+  small: '小盘股 (10-100亿美元)',
+  micro: '微盘股 (<10亿美元)',
+};
+
+// ============================================================
+// 行业中文标签
+// ============================================================
+export const SECTOR_LABELS: Record<StockSector, string> = {
+  AI: 'AI人工智能',
+  Semiconductor: '半导体芯片',
+  Bitcoin: '比特币/加密',
+  EV: '电动汽车',
+  Quantum: '量子计算',
+  Storage: '存储/数据中心',
+  RareEarth: '稀土/材料',
+  Cloud: '云计算/SaaS',
+  Fintech: '金融科技',
+  Energy: '能源/油气',
+  Healthcare: '医疗健康',
+  Retail: '零售/消费',
+  Tech: '科技',
+  ETF: 'ETF指数基金',
+  Finance: '金融/银行',
+  Defense: '国防/军工',
+  Industrial: '工业/制造',
+  Biotech: '生物科技',
+  Consumer: '消费品',
+  Media: '媒体/娱乐',
+  China: '中概股',
+  Robotics: '机器人/自动化',
+  SpaceTech: '航天/太空',
+  Other: '其他',
+};
+
+// ============================================================
+// 多维筛选函数
+// ============================================================
+export interface StockFilterOptions {
+  sectors?: StockSector[];
+  marketCapTiers?: MarketCapTier[];
+  customSymbols?: string[];
+  searchQuery?: string;
+}
+
+export function filterStocks(stocks: StockInfo[], options: StockFilterOptions): StockInfo[] {
+  let result = [...stocks];
+  if (options.customSymbols && options.customSymbols.length > 0) {
+    const symbolSet = new Set(options.customSymbols.map(s => s.toUpperCase()));
+    return result.filter(s => symbolSet.has(s.symbol));
+  }
+  if (options.sectors && options.sectors.length > 0) {
+    const sectorSet = new Set(options.sectors);
+    result = result.filter(s => s.sectors.some(sec => sectorSet.has(sec)));
+  }
+  if (options.marketCapTiers && options.marketCapTiers.length > 0) {
+    const tierSet = new Set(options.marketCapTiers);
+    result = result.filter(s => tierSet.has(getMarketCapTier(s.marketCap)));
+  }
+  if (options.searchQuery && options.searchQuery.trim()) {
+    const q = options.searchQuery.trim().toLowerCase();
+    result = result.filter(s =>
+      s.symbol.toLowerCase().includes(q) || s.name.toLowerCase().includes(q)
+    );
+  }
+  return result;
+}
+
+export function getSectorStats(stocks: StockInfo[]): Partial<Record<StockSector, number>> {
+  const stats: Partial<Record<StockSector, number>> = {};
+  for (const stock of stocks) {
+    for (const sector of stock.sectors) {
+      stats[sector] = (stats[sector] || 0) + 1;
+    }
+  }
+  return stats;
+}
+
+export function getMarketCapTierStats(stocks: StockInfo[]): Record<MarketCapTier, number> {
+  const stats: Record<MarketCapTier, number> = { large: 0, mid: 0, small: 0, micro: 0 };
+  for (const stock of stocks) {
+    stats[getMarketCapTier(stock.marketCap)]++;
+  }
+  return stats;
+}

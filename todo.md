@@ -83,3 +83,21 @@
 - [x] 速度统计：实时显示 symbols/秒 和已用时间
 - [x] 数据源统计：显示各源成功/失败数
 - [x] 前端缓存页面：显示并发速度、数据源使用情况、重试状态
+
+## 股票池筛选 + 交易理由（第四轮）
+- [ ] stockPool.ts：添加市值分类字段（large/mid/small）和更细化的行业标签
+- [ ] 回测引擎：交易记录添加 buyReason/sellReason 字段（基于策略信号生成）
+- [ ] 回测配置页面：多维筛选面板（全部/行业分类/市值分类/自选股票）
+- [ ] 回测详情页面：交易记录表格显示买入/卖出理由
+- [ ] 数据库 schema：backtestTrades 表添加 buyReason/sellReason 字段
+
+## 多策略对比 + 股票池筛选 + 交易理由（第五轮）
+- [x] stockPool.ts：添加大/中/小盘分类函数和多维筛选工具
+- [x] backtestEngine.ts：交易记录已有 reason/signalType 字段，已在前端展示
+- [x] drizzle/schema.ts：backtestTrades 表已有 reason/signalType 字段，无需新增
+- [x] routers.ts：添加 backtest.compareStrategies 路由（并行运行多策略）
+- [x] routers.ts：添加 backtest.compareRecords 路由（历史记录对比）
+- [x] BacktestPage.tsx：多维筛选面板（行业/市值/自选）
+- [x] BacktestPage.tsx：多策略对比面板（勾选策略 + 并排结果表格 + 收益曲线对比图）
+- [x] BacktestPage.tsx：历史记录对比功能（勾选多条记录 + 参数/条件对比表格）
+- [x] BacktestDetailPage.tsx：交易记录显示信号类型 + 买卖理由（悬停显示完整理由）

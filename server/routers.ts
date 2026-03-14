@@ -300,6 +300,88 @@ export const appRouter = router({
       return { filename: `backtest_${session.name}_${session.id}.xlsx`, base64 };
     }),
 
+    // -------------------------------------------------------
+    // Multi-strategy comparison: run multiple strategies in parallel
+    // -------------------------------------------------------
+    compareStrategies: protectedProcedure.input(z.object({
+      name: z.string(),
+      strategies: z.array(z.enum(["standard", "aggressive", "ladder_cd_combo", "mean_reversion", "macd_volume", "bollinger_squeeze", "gemini_ai"])).min(2).max(7),
+      symbols: z.array(z.string()).min(1),
+      startDate: z.string(),
+      endDate: z.string(),
+      initialCapital: z.number().default(100000),
+      maxPositionPct: z.number().default(10),
+      strategyParams: z.record(z.string(), z.any()).optional(),
+    })).mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const sessionIds: number[] = [];
+      for (const strategy of input.strategies) {
+        const stratInfo = STRATEGY_INFO[strategy as StrategyType];
+        const sessionName = `[对比] ${input.name} - ${stratInfo?.name || strategy}`;
+        const result = await db.insert(backtestSessions).values({
+          userId: ctx.user.id, name: sessionName,
+          strategy: strategy as any,
+          symbols: input.symbols, startDate: input.startDate, endDate: input.endDate,
+          initialCapital: String(input.initialCapital), maxPositionPct: String(input.maxPositionPct),
+          strategyParams: input.strategyParams || null,
+        }).$returningId();
+        sessionIds.push(result[0].id);
+      }
+      // Run all backtests in parallel (background)
+      input.strategies.forEach((strategy, i) => {
+        const actualStrategy = strategy === "gemini_ai" ? "standard" : strategy as StrategyType;
+        runBacktest({
+          sessionId: sessionIds[i], symbols: input.symbols,
+          startDate: input.startDate, endDate: input.endDate,
+          strategy: actualStrategy, initialCapital: input.initialCapital,
+          maxPositionPct: input.maxPositionPct,
+          strategyParams: input.strategyParams as StrategyParams,
+        }).catch(err => console.error(`[Compare] Strategy ${strategy} error:`, err));
+      });
+      return { sessionIds, count: sessionIds.length };
+    }),
+
+    // -------------------------------------------------------
+    // Compare historical records: fetch multiple sessions for comparison
+    // -------------------------------------------------------
+    compareRecords: protectedProcedure.input(z.object({
+      ids: z.array(z.number()).min(2).max(10),
+    })).query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const sessions = await db.select().from(backtestSessions)
+        .where(inArray(backtestSessions.id, input.ids));
+      const ownedSessions = sessions.filter(s => s.userId === ctx.user.id);
+      if (ownedSessions.length === 0) throw new Error("No sessions found");
+      const comparison = ownedSessions.map(s => ({
+        id: s.id,
+        name: s.name,
+        strategy: s.strategy,
+        strategyName: STRATEGY_INFO[s.strategy as StrategyType]?.name || s.strategy,
+        symbols: (s.symbols as string[]) || [],
+        symbolCount: ((s.symbols as string[]) || []).length,
+        startDate: s.startDate,
+        endDate: s.endDate,
+        initialCapital: Number(s.initialCapital),
+        maxPositionPct: Number(s.maxPositionPct),
+        strategyParams: s.strategyParams,
+        status: s.status,
+        totalReturnPct: Number(s.totalReturnPct) || 0,
+        totalReturn: Number(s.totalReturn) || 0,
+        winRate: Number(s.winRate) || 0,
+        maxDrawdown: Number(s.maxDrawdown) || 0,
+        sharpeRatio: Number(s.sharpeRatio) || 0,
+        totalTrades: s.totalTrades || 0,
+        winningTrades: s.winningTrades || 0,
+        losingTrades: s.losingTrades || 0,
+        benchmarkReturn: Number(s.benchmarkReturn) || 0,
+        equityCurve: (s.resultSummary as any)?.equityCurve || [],
+        createdAt: s.createdAt,
+      }));
+      return { sessions: comparison };
+    }),
+
     aiAnalyze: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database not available");
