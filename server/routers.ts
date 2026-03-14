@@ -345,8 +345,22 @@ export const appRouter = router({
       return db.select().from(dataSourceHealth).orderBy(dataSourceHealth.source);
     }),
     geminiStatus: publicProcedure.query(async () => {
-      const connected = await testGeminiConnection().catch(() => false);
-      return { connected, model: ENV.geminiModel, baseUrl: ENV.geminiBaseUrl };
+      const results = await testGeminiConnection().catch(() => ({ gemini: false, openai: false }));
+      return {
+        gemini: {
+          connected: results.gemini,
+          model: ENV.geminiModel,
+          baseUrl: ENV.geminiBaseUrl,
+        },
+        openai: {
+          connected: results.openai,
+          model: ENV.openaiModel,
+          baseUrl: ENV.openaiBaseUrl,
+        },
+        // Legacy field for backward compat
+        connected: results.gemini || results.openai,
+        activeProvider: results.gemini ? "gemini" : results.openai ? "openai" : "none",
+      };
     }),
   }),
 });

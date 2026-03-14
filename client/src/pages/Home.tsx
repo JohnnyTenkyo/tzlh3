@@ -119,13 +119,11 @@ export default function Home() {
           <div className="flex items-start gap-3">
             <Cpu className="h-5 w-5 text-cyan-400 mt-0.5 shrink-0" />
             <div>
-              <div className="font-medium text-sm text-cyan-400">Gemini AI 集成</div>
+              <div className="font-medium text-sm text-cyan-400">AI 服务集成（Gemini + OpenAI 双备份）</div>
               <div className="text-xs text-muted-foreground mt-1">
-                模型: <span className="text-foreground">{geminiStatus?.model || "gemini-2.0-flash"}</span>
-                {" · "}接入点: <span className="text-foreground">{geminiStatus?.baseUrl || "https://openfly.cc/antigravity"}</span>
-                {" · "}状态: <span className={geminiStatus?.connected ? "text-green-400" : "text-yellow-400"}>
-                  {geminiStatus?.connected ? "✓ 已连接" : "检测中..."}
-                </span>
+                Gemini: <span className={geminiStatus?.gemini?.connected ? "text-green-400" : "text-yellow-400"}>{geminiStatus?.gemini?.connected ? "✓ 已连接" : "不可用"}</span>
+                {" · "}OpenAI: <span className={geminiStatus?.openai?.connected ? "text-green-400" : "text-yellow-400"}>{geminiStatus?.openai?.connected ? "✓ 已连接" : "不可用"}</span>
+                {" · "}当前使用: <span className="text-foreground">{geminiStatus?.activeProvider === "gemini" ? "Gemini" : geminiStatus?.activeProvider === "openai" ? "OpenAI" : "检测中..."}</span>
               </div>
             </div>
           </div>

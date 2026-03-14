@@ -2,7 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
-import { Activity, RefreshCw, Cpu, CheckCircle, XCircle, AlertCircle } from "lucide-react";
+import { Activity, RefreshCw, Cpu, CheckCircle, XCircle, AlertCircle, Zap } from "lucide-react";
 
 const SOURCE_INFO: Record<string, { description: string; tier: string; rateLimit: string }> = {
   alpaca: { description: "Alpaca Markets - 实时/历史数据", tier: "付费", rateLimit: "200/min" },
@@ -16,12 +16,76 @@ const SOURCE_INFO: Record<string, { description: string; tier: string; rateLimit
   marketstack: { description: "MarketStack - 全球股票数据", tier: "免费/付费", rateLimit: "100/month" },
 };
 
+function AIStatusCard({
+  name,
+  icon: Icon,
+  connected,
+  model,
+  baseUrl,
+  isLoading,
+  isPrimary,
+}: {
+  name: string;
+  icon: React.ElementType;
+  connected: boolean | undefined;
+  model: string;
+  baseUrl: string;
+  isLoading: boolean;
+  isPrimary?: boolean;
+}) {
+  const borderColor = connected
+    ? "border-cyan-500/30"
+    : isLoading
+    ? "border-border"
+    : "border-red-500/20";
+
+  return (
+    <Card className={`bg-card ${borderColor}`}>
+      <CardContent className="pt-4 pb-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Icon className={`h-5 w-5 ${connected ? "text-cyan-400" : isLoading ? "text-muted-foreground" : "text-red-400"}`} />
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-sm">{name}</span>
+                {isPrimary && <Badge variant="outline" className="text-xs h-4 border-cyan-500/40 text-cyan-400">主要</Badge>}
+                {!isPrimary && <Badge variant="outline" className="text-xs h-4 border-yellow-500/40 text-yellow-400">备用</Badge>}
+              </div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                {model} · {baseUrl}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {isLoading ? (
+              <>
+                <AlertCircle className="h-4 w-4 text-muted-foreground animate-pulse" />
+                <Badge variant="secondary" className="text-xs">检测中</Badge>
+              </>
+            ) : connected ? (
+              <>
+                <CheckCircle className="h-4 w-4 text-green-400" />
+                <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-xs">已连接</Badge>
+              </>
+            ) : (
+              <>
+                <XCircle className="h-4 w-4 text-red-400" />
+                <Badge className="bg-red-500/20 text-red-400 border-red-500/30 text-xs">服务不可用</Badge>
+              </>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function HealthPage() {
   const { data: sources, isLoading, refetch } = trpc.health.sources.useQuery(
     undefined,
     { refetchInterval: 30000 }
   );
-  const { data: geminiStatus, refetch: refetchGemini } = trpc.health.geminiStatus.useQuery(
+  const { data: aiStatus, isLoading: aiLoading, refetch: refetchAI } = trpc.health.geminiStatus.useQuery(
     undefined,
     { refetchInterval: 60000 }
   );
@@ -49,49 +113,52 @@ export default function HealthPage() {
     return { key, info: SOURCE_INFO[key], record: dbRecord };
   });
 
+  const activeProvider = aiStatus?.activeProvider;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">数据源健康监控</h1>
-        <Button variant="ghost" size="sm" onClick={() => { refetch(); refetchGemini(); }}>
+        <Button variant="ghost" size="sm" onClick={() => { refetch(); refetchAI(); }}>
           <RefreshCw className="h-4 w-4" />
         </Button>
       </div>
 
-      {/* Gemini AI Status */}
-      <Card className={`bg-card border-border ${geminiStatus?.connected ? "border-cyan-500/30" : "border-yellow-500/30"}`}>
-        <CardContent className="pt-4 pb-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Cpu className={`h-5 w-5 ${geminiStatus?.connected ? "text-cyan-400" : "text-yellow-400"}`} />
-              <div>
-                <div className="font-medium text-sm">Gemini AI 服务</div>
-                <div className="text-xs text-muted-foreground mt-0.5">
-                  模型: {geminiStatus?.model || "gemini-2.0-flash"} · 接入点: {geminiStatus?.baseUrl || "https://openfly.cc/antigravity"}
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {geminiStatus?.connected ? (
-                <>
-                  <CheckCircle className="h-4 w-4 text-green-400" />
-                  <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-xs">已连接</Badge>
-                </>
-              ) : geminiStatus === undefined ? (
-                <>
-                  <AlertCircle className="h-4 w-4 text-muted-foreground animate-pulse" />
-                  <Badge variant="secondary" className="text-xs">检测中</Badge>
-                </>
-              ) : (
-                <>
-                  <XCircle className="h-4 w-4 text-red-400" />
-                  <Badge className="bg-red-500/20 text-red-400 border-red-500/30 text-xs">服务不可用</Badge>
-                </>
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* AI Status Section */}
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <Cpu className="h-4 w-4 text-cyan-400" />
+          <h2 className="text-sm font-medium">AI 服务状态</h2>
+          {activeProvider && activeProvider !== "none" && (
+            <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/30 text-xs">
+              <Zap className="h-3 w-3 mr-1" />
+              当前使用: {activeProvider === "gemini" ? "Gemini" : "OpenAI"}
+            </Badge>
+          )}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <AIStatusCard
+            name="Gemini AI"
+            icon={Cpu}
+            connected={aiStatus?.gemini?.connected}
+            model={aiStatus?.gemini?.model || "gemini-2.0-flash"}
+            baseUrl={aiStatus?.gemini?.baseUrl || "https://openfly.cc"}
+            isLoading={aiLoading}
+            isPrimary
+          />
+          <AIStatusCard
+            name="OpenAI"
+            icon={Zap}
+            connected={aiStatus?.openai?.connected}
+            model={aiStatus?.openai?.model || "gpt-5.1-codex"}
+            baseUrl={aiStatus?.openai?.baseUrl || "https://openfly.cc/v1"}
+            isLoading={aiLoading}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">
+          系统优先使用 Gemini AI，若 Gemini 不可用则自动切换至 OpenAI 备用服务，确保 AI 分析功能持续可用。
+        </p>
+      </div>
 
       {/* Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -159,7 +226,6 @@ export default function HealthPage() {
                       <span className="text-muted-foreground">失败: </span>
                       <span className="text-red-400">{record.failCount || 0}</span>
                     </div>
-
                     {record.lastError && (
                       <div className="col-span-2">
                         <span className="text-muted-foreground">最近错误: </span>

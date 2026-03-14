@@ -19,6 +19,10 @@ export const ENV = {
   marketstackApiKey: process.env.MARKETSTACK_API_KEY ?? "",
   // Gemini AI
   geminiApiKey: process.env.GEMINI_API_KEY ?? "",
-  geminiBaseUrl: process.env.GOOGLE_GEMINI_BASE_URL ?? "https://openfly.cc/antigravity",
+  geminiBaseUrl: process.env.GOOGLE_GEMINI_BASE_URL ?? "https://openfly.cc",
   geminiModel: process.env.GEMINI_MODEL ?? "gemini-2.0-flash",
+  // OpenAI (fallback AI)
+  openaiApiKey: process.env.OPENAI_API_KEY ?? "",
+  openaiBaseUrl: process.env.OPENAI_BASE_URL ?? "https://openfly.cc/v1",
+  openaiModel: process.env.OPENAI_MODEL ?? "gpt-5.1-codex",
 };

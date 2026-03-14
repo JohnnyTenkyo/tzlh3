@@ -64,3 +64,12 @@
 - [x] 修复缓存管理页面预热按钮不显示（未登录时显示登录提示卡片）
 - [x] 回测详情页添加收益率曲线图（与 QQQ/SPY 基准对比，使用 recharts LineChart）
 - [x] 修复 Gemini AI 连接状态显示（修正 API URL，区分检测中/服务不可用/已连接三种状态）
+
+## 新功能（第二轮）
+- [x] 集成 OpenAI 为 Gemini AI 备用（baseURL: https://openfly.cc/v1，自动故障转移）
+- [x] env.ts 添加 openaiApiKey/openaiBaseUrl/openaiModel
+- [x] geminiStrategy.ts 添加 OpenAI 备用调用逻辑（Gemini 失败时自动切换）
+- [x] 健康监控页面显示双 AI 状态（Gemini + OpenAI）
+- [x] 策略参数可视化调优：止损/止盈/持仓天数滑块
+- [x] 策略参数实时预览（模拟收益曲线对比图表）
+- [x] 回测配置页面集成参数调优面板（Tabs布局：基础配置/参数调优/历史记录）
