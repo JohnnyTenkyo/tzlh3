@@ -229,12 +229,23 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
   let prevCapital = capital;
 
   try {
-    // Fetch benchmark (SPY)
+    // Fetch benchmark (SPY + QQQ)
     let benchmarkReturn = 0;
+    let spyCurve: Array<{ time: number; equity: number }> = [];
+    let qqqCurve: Array<{ time: number; equity: number }> = [];
     try {
       const spyCandles = await getCandlesWithCache("SPY", "1d", config.startDate, config.endDate);
       if (spyCandles.length >= 2) {
         benchmarkReturn = (spyCandles[spyCandles.length - 1].close - spyCandles[0].close) / spyCandles[0].close;
+        const spyBase = spyCandles[0].close;
+        spyCurve = spyCandles.map(c => ({ time: c.time, equity: config.initialCapital * (c.close / spyBase) }));
+      }
+    } catch { /* ignore */ }
+    try {
+      const qqqCandles = await getCandlesWithCache("QQQ", "1d", config.startDate, config.endDate);
+      if (qqqCandles.length >= 2) {
+        const qqqBase = qqqCandles[0].close;
+        qqqCurve = qqqCandles.map(c => ({ time: c.time, equity: config.initialCapital * (c.close / qqqBase) }));
       }
     } catch { /* ignore */ }
 
@@ -326,7 +337,11 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
         winRate: String(winRate), maxDrawdown: String(maxDrawdown),
         sharpeRatio: String(sharpeRatio), totalTrades: allTrades.length,
         winningTrades, losingTrades, benchmarkReturn: String(benchmarkReturn),
-        resultSummary: { equityCurve: equityCurve.slice(-100) },
+        resultSummary: {
+          equityCurve: equityCurve.slice(-500),
+          spyCurve: spyCurve.slice(-500),
+          qqqCurve: qqqCurve.slice(-500),
+        },
         progressMessage: "回测完成",
       }).where(eq(backtestSessions.id, config.sessionId));
 

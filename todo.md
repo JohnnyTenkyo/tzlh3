@@ -56,5 +56,11 @@
 - [x] server/auth.logout.test.ts（登出功能测试）
 
 ## 部署
-- [ ] 保存 checkpoint 供用户检查
+- [x] 保存 checkpoint 供用户检查
 - [ ] 用户确认后 publish
+
+## Bug 修复（用户反馈）
+- [x] 修复登录功能无法正常工作（JWT payload 缺少 appId/openId，修复 createSessionToken + sdk.authenticateRequest）
+- [x] 修复缓存管理页面预热按钮不显示（未登录时显示登录提示卡片）
+- [x] 回测详情页添加收益率曲线图（与 QQQ/SPY 基准对比，使用 recharts LineChart）
+- [x] 修复 Gemini AI 连接状态显示（修正 API URL，区分检测中/服务不可用/已连接三种状态）

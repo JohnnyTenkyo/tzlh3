@@ -270,6 +270,12 @@ class SDKServer {
     const signedInAt = new Date();
     let user = await db.getUserByOpenId(sessionUserId);
 
+    // Local users (registered via username/password) have openId starting with "local_"
+    // They are already in DB from registration, no OAuth sync needed
+    if (!user && sessionUserId.startsWith("local_")) {
+      throw ForbiddenError("Local user not found in database");
+    }
+
     // If user not in DB, sync from OAuth server automatically
     if (!user) {
       try {

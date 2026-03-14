@@ -77,10 +77,15 @@ export default function HealthPage() {
                   <CheckCircle className="h-4 w-4 text-green-400" />
                   <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-xs">已连接</Badge>
                 </>
+              ) : geminiStatus === undefined ? (
+                <>
+                  <AlertCircle className="h-4 w-4 text-muted-foreground animate-pulse" />
+                  <Badge variant="secondary" className="text-xs">检测中</Badge>
+                </>
               ) : (
                 <>
-                  <AlertCircle className="h-4 w-4 text-yellow-400" />
-                  <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30 text-xs">检测中</Badge>
+                  <XCircle className="h-4 w-4 text-red-400" />
+                  <Badge className="bg-red-500/20 text-red-400 border-red-500/30 text-xs">服务不可用</Badge>
                 </>
               )}
             </div>

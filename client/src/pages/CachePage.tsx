@@ -99,7 +99,13 @@ export default function CachePage() {
       )}
 
       {/* Quick Warm Groups */}
-      {isAuthenticated && (
+      {!isAuthenticated ? (
+        <Card className="bg-card border-border">
+          <CardContent className="py-6 text-center">
+            <p className="text-muted-foreground text-sm">请先<a href="/auth" className="text-primary hover:underline mx-1">登录</a>后使用缓存预热功能</p>
+          </CardContent>
+        </Card>
+      ) : (
         <Card className="bg-card border-border">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium flex items-center gap-2">

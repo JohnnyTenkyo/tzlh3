@@ -20,9 +20,10 @@ function getJwtSecret() {
   return new TextEncoder().encode(ENV.cookieSecret);
 }
 
-async function createSessionToken(userId: string, name: string): Promise<string> {
+async function createSessionToken(openId: string, name: string): Promise<string> {
   const secret = getJwtSecret();
-  return new SignJWT({ userId, name })
+  // Must include openId, appId, name to be compatible with sdk.verifySession()
+  return new SignJWT({ openId, appId: ENV.appId || "local", name: name || openId })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setExpirationTime(Math.floor((Date.now() + ONE_YEAR_MS) / 1000))
     .sign(secret);

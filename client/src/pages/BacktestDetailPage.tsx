@@ -5,7 +5,68 @@ import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, Download, Cpu, TrendingUp, TrendingDown } from "lucide-react";
 import { toast } from "sonner";
-import { Streamdown } from "streamdown";
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+} from "recharts";
+import { useMemo } from "react";
+
+// Merge equity curves from strategy, SPY, QQQ into a unified time series
+function mergeEquityCurves(
+  equityCurve: Array<{ time: number; equity: number }>,
+  spyCurve: Array<{ time: number; equity: number }>,
+  qqqCurve: Array<{ time: number; equity: number }>,
+  initialCapital: number
+) {
+  // Build maps for quick lookup
+  const spyMap = new Map(spyCurve.map(p => [p.time, p.equity]));
+  const qqqMap = new Map(qqqCurve.map(p => [p.time, p.equity]));
+
+  // Collect all unique timestamps
+  const allTimes = Array.from(
+    new Set([
+      ...equityCurve.map(p => p.time),
+      ...spyCurve.map(p => p.time),
+      ...qqqCurve.map(p => p.time),
+    ])
+  ).sort((a, b) => a - b);
+
+  // Forward-fill values
+  let lastStrategy = initialCapital;
+  let lastSpy = initialCapital;
+  let lastQqq = initialCapital;
+
+  return allTimes.map(time => {
+    const strategyPoint = equityCurve.find(p => p.time === time);
+    if (strategyPoint) lastStrategy = strategyPoint.equity;
+    if (spyMap.has(time)) lastSpy = spyMap.get(time)!;
+    if (qqqMap.has(time)) lastQqq = qqqMap.get(time)!;
+
+    return {
+      date: new Date(time).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit", year: "2-digit" }),
+      time,
+      strategy: Math.round(lastStrategy),
+      spy: Math.round(lastSpy),
+      qqq: Math.round(lastQqq),
+    };
+  });
+}
+
+// Custom tooltip for the chart
+function CustomTooltip({ active, payload, label }: any) {
+  if (!active || !payload || !payload.length) return null;
+  return (
+    <div className="bg-card border border-border rounded-lg p-3 text-xs shadow-lg">
+      <p className="text-muted-foreground mb-2">{label}</p>
+      {payload.map((p: any) => (
+        <div key={p.dataKey} className="flex items-center gap-2 mb-1">
+          <div className="w-2 h-2 rounded-full" style={{ background: p.color }} />
+          <span className="text-muted-foreground">{p.name}:</span>
+          <span className="font-medium" style={{ color: p.color }}>${p.value?.toLocaleString()}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function BacktestDetailPage() {
   const params = useParams<{ id: string }>();
@@ -30,6 +91,20 @@ export default function BacktestDetailPage() {
     onSuccess: () => { toast.success("AI 分析完成"); utils.backtest.detail.invalidate({ id }); },
     onError: (e) => toast.error(e.message),
   });
+
+  // Build chart data from resultSummary
+  const chartData = useMemo(() => {
+    if (!data?.session) return [];
+    const summary = data.session.resultSummary as any;
+    if (!summary?.equityCurve?.length) return [];
+    const initialCapital = Number(data.session.initialCapital) || 100000;
+    return mergeEquityCurves(
+      summary.equityCurve || [],
+      summary.spyCurve || [],
+      summary.qqqCurve || [],
+      initialCapital
+    );
+  }, [data]);
 
   if (isLoading) return <div className="text-center py-12 text-muted-foreground">加载中...</div>;
   if (error || !data) return <div className="text-center py-12 text-muted-foreground">回测记录不存在或无权访问</div>;
@@ -57,6 +132,11 @@ export default function BacktestDetailPage() {
   try {
     if (session.aiAnalysis) aiAnalysis = JSON.parse(session.aiAnalysis as string);
   } catch {}
+
+  // Compute benchmark returns from chart data for display
+  const qqqReturn = chartData.length >= 2
+    ? ((chartData[chartData.length - 1].qqq - chartData[0].qqq) / chartData[0].qqq * 100).toFixed(2)
+    : null;
 
   return (
     <div className="space-y-6">
@@ -112,6 +192,89 @@ export default function BacktestDetailPage() {
           </Card>
         ))}
       </div>
+
+      {/* Equity Curve Chart */}
+      {chartData.length > 1 && (
+        <Card className="bg-card border-border">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-blue-400" /> 收益率曲线对比
+              </CardTitle>
+              <div className="flex items-center gap-4 text-xs">
+                <span className={`font-medium ${totalReturn >= 0 ? "text-gain" : "text-loss"}`}>
+                  策略 {totalReturn >= 0 ? "+" : ""}{(totalReturn * 100).toFixed(2)}%
+                </span>
+                <span className={`font-medium ${benchmarkReturn >= 0 ? "text-gain" : "text-loss"}`}>
+                  SPY {benchmarkReturn >= 0 ? "+" : ""}{(benchmarkReturn * 100).toFixed(2)}%
+                </span>
+                {qqqReturn && (
+                  <span className={`font-medium ${Number(qqqReturn) >= 0 ? "text-gain" : "text-loss"}`}>
+                    QQQ {Number(qqqReturn) >= 0 ? "+" : ""}{qqqReturn}%
+                  </span>
+                )}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={280}>
+              <LineChart data={chartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
+                <XAxis
+                  dataKey="date"
+                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
+                  tickLine={false}
+                  interval={Math.floor(chartData.length / 6)}
+                />
+                <YAxis
+                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                  width={55}
+                />
+                <Tooltip content={<CustomTooltip />} />
+                <Legend
+                  wrapperStyle={{ fontSize: "11px", paddingTop: "8px" }}
+                  formatter={(value) => <span style={{ color: "hsl(var(--muted-foreground))" }}>{value}</span>}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="strategy"
+                  name="策略净值"
+                  stroke="#3b82f6"
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 4 }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="spy"
+                  name="SPY"
+                  stroke="#f59e0b"
+                  strokeWidth={1.5}
+                  strokeDasharray="4 2"
+                  dot={false}
+                  activeDot={{ r: 3 }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="qqq"
+                  name="QQQ"
+                  stroke="#8b5cf6"
+                  strokeWidth={1.5}
+                  strokeDasharray="4 2"
+                  dot={false}
+                  activeDot={{ r: 3 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+            <p className="text-xs text-muted-foreground text-center mt-1">
+              初始资金 ${Number(session.initialCapital || 100000).toLocaleString()} · 蓝线=策略净值 · 橙色虚线=SPY · 紫色虚线=QQQ
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* AI Analysis */}
       {aiAnalysis && (
