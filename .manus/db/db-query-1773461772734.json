@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE `users` ADD CONSTRAINT `users_username_unique` UNIQUE(`username`);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 218ocDVKM1Q7AMs.root --database FbqmtzWopVzvxjZUExbwvL --execute ALTER TABLE `users` ADD CONSTRAINT `users_username_unique` UNIQUE(`username`);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 2149
+}

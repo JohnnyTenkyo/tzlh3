@@ -1,28 +1,353 @@
-import { COOKIE_NAME } from "@shared/const";
+import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { z } from "zod";
+import { getDb, registerUser, verifyPassword, changePassword } from "./db";
+import { backtestSessions, backtestTrades, dataSourceHealth } from "../drizzle/schema";
+import { eq, desc, inArray } from "drizzle-orm";
+import type { Timeframe } from "./marketData";
+import { calculateMACD, calculateLadder, calculateCDSignals } from "./indicators";
+import { getCandlesWithCache, getCacheStatus, getCacheWarmingStatus, warmCacheForSymbols } from "./cacheManager";
+import { runBacktest, STRATEGY_INFO, STRATEGY_DEFAULTS, type StrategyType, type StrategyParams } from "./backtestEngine";
+import { analyzeBacktestResult, generateGeminiStrategy, testGeminiConnection } from "./geminiStrategy";
+import { STOCK_POOL, type StockInfo } from "@shared/stockPool";
+import { SignJWT } from "jose";
+import { ENV } from "./_core/env";
+import * as XLSX from "xlsx";
+
+function getJwtSecret() {
+  return new TextEncoder().encode(ENV.cookieSecret);
+}
+
+async function createSessionToken(userId: string, name: string): Promise<string> {
+  const secret = getJwtSecret();
+  return new SignJWT({ userId, name })
+    .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+    .setExpirationTime(Math.floor((Date.now() + ONE_YEAR_MS) / 1000))
+    .sign(secret);
+}
 
 export const appRouter = router({
-    // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
+
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
+    register: publicProcedure
+      .input(z.object({
+        username: z.string().min(2).max(32),
+        password: z.string().min(4).max(64),
+        name: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const user = await registerUser(input.username, input.password, input.name);
+        if (!user) throw new Error("注册失败");
+        const token = await createSessionToken(user.openId, user.name || user.username || "");
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+        return { success: true, user: { id: user.id, username: user.username, name: user.name } };
+      }),
+    login: publicProcedure
+      .input(z.object({ username: z.string(), password: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const user = await verifyPassword(input.username, input.password);
+        if (!user) throw new Error("用户名或密码错误");
+        const token = await createSessionToken(user.openId, user.name || user.username || "");
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+        return { success: true, user: { id: user.id, username: user.username, name: user.name } };
+      }),
+    changePassword: protectedProcedure
+      .input(z.object({
+        oldPassword: z.string(),
+        newPassword: z.string().min(4).max(64),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await changePassword(ctx.user.id, input.oldPassword, input.newPassword);
+        return { success: true };
+      }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
-      return {
-        success: true,
-      } as const;
+      return { success: true } as const;
     }),
   }),
 
-  // TODO: add feature routers here, e.g.
-  // todo: router({
-  //   list: protectedProcedure.query(({ ctx }) =>
-  //     db.getUserTodos(ctx.user.id)
-  //   ),
-  // }),
+  chart: router({
+    getCandles: publicProcedure.input(z.object({
+      symbol: z.string(),
+      timeframe: z.string().default("1d"),
+      startDate: z.string().optional(),
+      endDate: z.string().optional(),
+    })).query(async ({ input }) => {
+      const candles = await getCandlesWithCache(
+        input.symbol, input.timeframe as Timeframe, input.startDate, input.endDate
+      );
+      return { candles };
+    }),
+    getIndicators: publicProcedure.input(z.object({
+      symbol: z.string(),
+      timeframe: z.string().default("1d"),
+      startDate: z.string().optional(),
+      endDate: z.string().optional(),
+    })).query(async ({ input }) => {
+      const candles = await getCandlesWithCache(
+        input.symbol, input.timeframe as Timeframe, input.startDate, input.endDate
+      );
+      if (candles.length < 30) return { macd: null, ladder: null, cdSignals: [] };
+      const macd = calculateMACD(candles);
+      const ladder = calculateLadder(candles);
+      const cdSignals = calculateCDSignals(candles);
+      return {
+        macd: {
+          diff: macd.diff.map((v, i) => ({ time: candles[i].time, value: v })),
+          dea: macd.dea.map((v, i) => ({ time: candles[i].time, value: v })),
+          macd: macd.macd.map((v, i) => ({ time: candles[i].time, value: v })),
+        },
+        ladder: ladder.map(l => ({
+          time: l.time, blueUp: l.blueUp, blueDn: l.blueDn, blueMid: l.blueMid,
+          yellowUp: l.yellowUp, yellowDn: l.yellowDn, yellowMid: l.yellowMid,
+        })),
+        cdSignals,
+      };
+    }),
+    getAISignal: publicProcedure.input(z.object({
+      symbol: z.string(),
+      timeframe: z.string().default("1d"),
+    })).query(async ({ input }) => {
+      const candles = await getCandlesWithCache(input.symbol, input.timeframe as Timeframe);
+      if (candles.length < 30) return { signal: "hold", confidence: 0.5, reasoning: "数据不足" };
+      const macd = calculateMACD(candles);
+      const ladder = calculateLadder(candles);
+      const signal = await generateGeminiStrategy(input.symbol, candles, {
+        macd: { diff: macd.diff, dea: macd.dea, macd: macd.macd },
+        ladder,
+      });
+      return signal;
+    }),
+  }),
+
+  stockPool: router({
+    list: publicProcedure.input(z.object({
+      sector: z.string().optional(),
+      search: z.string().optional(),
+      minMarketCap: z.number().optional(),
+      maxMarketCap: z.number().optional(),
+      page: z.number().default(1),
+      pageSize: z.number().default(50),
+    })).query(({ input }) => {
+      let filtered = STOCK_POOL as StockInfo[];
+      if (input.sector) filtered = filtered.filter(s => s.sectors.includes(input.sector as any));
+      if (input.search) {
+        const q = input.search.toLowerCase();
+        filtered = filtered.filter(s => s.symbol.toLowerCase().includes(q) || s.name.toLowerCase().includes(q));
+      }
+      if (input.minMarketCap) filtered = filtered.filter(s => s.marketCap > 0 && s.marketCap >= input.minMarketCap!);
+      if (input.maxMarketCap) filtered = filtered.filter(s => s.marketCap > 0 && s.marketCap <= input.maxMarketCap!);
+      const total = filtered.length;
+      const start = (input.page - 1) * input.pageSize;
+      const items = filtered.slice(start, start + input.pageSize);
+      return { items, total, page: input.page, pageSize: input.pageSize };
+    }),
+    sectors: publicProcedure.query(() => {
+      const sectorCounts: Record<string, number> = {};
+      for (const stock of STOCK_POOL) {
+        for (const sector of stock.sectors) sectorCounts[sector] = (sectorCounts[sector] || 0) + 1;
+      }
+      return Object.entries(sectorCounts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+    }),
+    symbols: publicProcedure.query(() => STOCK_POOL.map(s => ({ symbol: s.symbol, name: s.name }))),
+  }),
+
+  backtest: router({
+    strategies: publicProcedure.query(() => {
+      const strategies = Object.entries(STRATEGY_INFO).map(([key, info]) => ({
+        key,
+        name: info.name,
+        description: info.description,
+        defaults: STRATEGY_DEFAULTS[key as StrategyType],
+      }));
+      strategies.push({
+        key: "gemini_ai",
+        name: "Gemini AI 智能策略",
+        description: "利用 Google Gemini AI 分析技术指标（MACD、黄蓝梯子、RSI、布林带）生成买卖信号。AI 综合多维度指标进行判断，适合捕捉复杂市场模式。",
+        defaults: STRATEGY_DEFAULTS["standard"],
+      });
+      return strategies;
+    }),
+
+    create: protectedProcedure.input(z.object({
+      name: z.string(),
+      strategy: z.enum(["standard", "aggressive", "ladder_cd_combo", "mean_reversion", "macd_volume", "bollinger_squeeze", "gemini_ai"]),
+      symbols: z.array(z.string()).min(1),
+      startDate: z.string(),
+      endDate: z.string(),
+      initialCapital: z.number().default(100000),
+      maxPositionPct: z.number().default(10),
+      strategyParams: z.record(z.string(), z.any()).optional(),
+    })).mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const result = await db.insert(backtestSessions).values({
+        userId: ctx.user.id, name: input.name, strategy: input.strategy as any,
+        symbols: input.symbols, startDate: input.startDate, endDate: input.endDate,
+        initialCapital: String(input.initialCapital), maxPositionPct: String(input.maxPositionPct),
+        strategyParams: input.strategyParams || null,
+      }).$returningId();
+      const sessionId = result[0].id;
+      const actualStrategy = input.strategy === "gemini_ai" ? "standard" : input.strategy as StrategyType;
+      runBacktest({
+        sessionId, symbols: input.symbols, startDate: input.startDate, endDate: input.endDate,
+        strategy: actualStrategy, initialCapital: input.initialCapital, maxPositionPct: input.maxPositionPct,
+        strategyParams: input.strategyParams as StrategyParams,
+      }).catch(err => console.error("[Backtest] Error:", err));
+      return { sessionId };
+    }),
+
+    list: protectedProcedure.query(async ({ ctx }) => {
+      const db = await getDb();
+      if (!db) return [];
+      return db.select().from(backtestSessions)
+        .where(eq(backtestSessions.userId, ctx.user.id))
+        .orderBy(desc(backtestSessions.createdAt)).limit(100);
+    }),
+
+    detail: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const sessions = await db.select().from(backtestSessions).where(eq(backtestSessions.id, input.id)).limit(1);
+      if (sessions.length === 0) throw new Error("Session not found");
+      const session = sessions[0];
+      if (session.userId !== ctx.user.id) throw new Error("Unauthorized");
+      const trades = await db.select().from(backtestTrades)
+        .where(eq(backtestTrades.sessionId, input.id)).orderBy(backtestTrades.tradeTime);
+      return { session, trades };
+    }),
+
+    progress: publicProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return null;
+      const sessions = await db.select({
+        status: backtestSessions.status, progress: backtestSessions.progress,
+        progressMessage: backtestSessions.progressMessage,
+      }).from(backtestSessions).where(eq(backtestSessions.id, input.id)).limit(1);
+      return sessions[0] || null;
+    }),
+
+    delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const sessions = await db.select().from(backtestSessions).where(eq(backtestSessions.id, input.id)).limit(1);
+      if (sessions.length === 0) throw new Error("Session not found");
+      if (sessions[0].userId !== ctx.user.id) throw new Error("Unauthorized");
+      await db.delete(backtestTrades).where(eq(backtestTrades.sessionId, input.id));
+      await db.delete(backtestSessions).where(eq(backtestSessions.id, input.id));
+      return { success: true };
+    }),
+
+    batchDelete: protectedProcedure.input(z.object({ ids: z.array(z.number()).min(1) })).mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const sessions = await db.select().from(backtestSessions).where(inArray(backtestSessions.id, input.ids));
+      const ownedIds = sessions.filter(s => s.userId === ctx.user.id).map(s => s.id);
+      if (ownedIds.length === 0) throw new Error("No sessions found");
+      await db.delete(backtestTrades).where(inArray(backtestTrades.sessionId, ownedIds));
+      await db.delete(backtestSessions).where(inArray(backtestSessions.id, ownedIds));
+      return { success: true, deleted: ownedIds.length };
+    }),
+
+    exportExcel: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const sessions = await db.select().from(backtestSessions).where(eq(backtestSessions.id, input.id)).limit(1);
+      if (sessions.length === 0) throw new Error("Session not found");
+      if (sessions[0].userId !== ctx.user.id) throw new Error("Unauthorized");
+      const session = sessions[0];
+      const trades = await db.select().from(backtestTrades)
+        .where(eq(backtestTrades.sessionId, input.id)).orderBy(backtestTrades.tradeTime);
+      const wb = XLSX.utils.book_new();
+      const summaryData = [
+        ["回测名称", session.name],
+        ["策略", STRATEGY_INFO[session.strategy as StrategyType]?.name || session.strategy],
+        ["开始日期", session.startDate],
+        ["结束日期", session.endDate],
+        ["初始资金", Number(session.initialCapital)],
+        ["总收益率", `${(Number(session.totalReturnPct) * 100).toFixed(2)}%`],
+        ["总收益", Number(session.totalReturn)],
+        ["胜率", `${(Number(session.winRate) * 100).toFixed(1)}%`],
+        ["最大回撤", `${(Number(session.maxDrawdown) * 100).toFixed(2)}%`],
+        ["夏普比率", Number(session.sharpeRatio)],
+        ["总交易数", session.totalTrades],
+        ["盈利交易", session.winningTrades],
+        ["亏损交易", session.losingTrades],
+        ["基准收益(SPY)", `${(Number(session.benchmarkReturn) * 100).toFixed(2)}%`],
+      ];
+      const summaryWs = XLSX.utils.aoa_to_sheet(summaryData);
+      XLSX.utils.book_append_sheet(wb, summaryWs, "回测概要");
+      const tradeRows = trades.map(t => ({
+        "时间": new Date(Number(t.tradeTime)).toLocaleString("zh-CN"),
+        "股票": t.symbol, "方向": t.side === "buy" ? "买入" : "卖出",
+        "数量": Number(t.quantity), "价格": Number(t.price),
+        "金额": Number(t.totalAmount), "手续费": Number(t.fee),
+        "盈亏": Number(t.pnl), "盈亏%": `${(Number(t.pnlPct) * 100).toFixed(2)}%`,
+        "信号类型": t.signalType || "", "原因": t.reason || "",
+      }));
+      const tradesWs = XLSX.utils.json_to_sheet(tradeRows);
+      XLSX.utils.book_append_sheet(wb, tradesWs, "交易记录");
+      const buffer = XLSX.write(wb, { bookType: "xlsx", type: "buffer" });
+      const base64 = Buffer.from(buffer).toString("base64");
+      return { filename: `backtest_${session.name}_${session.id}.xlsx`, base64 };
+    }),
+
+    aiAnalyze: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database not available");
+      const sessions = await db.select().from(backtestSessions).where(eq(backtestSessions.id, input.id)).limit(1);
+      if (sessions.length === 0) throw new Error("Session not found");
+      if (sessions[0].userId !== ctx.user.id) throw new Error("Unauthorized");
+      const session = sessions[0];
+      if (session.status !== "completed") throw new Error("回测尚未完成");
+      const analysis = await analyzeBacktestResult({
+        strategy: session.strategy, symbols: (session.symbols as string[]) || [],
+        startDate: session.startDate, endDate: session.endDate,
+        totalReturnPct: Number(session.totalReturnPct) || 0,
+        winRate: Number(session.winRate) || 0, maxDrawdown: Number(session.maxDrawdown) || 0,
+        sharpeRatio: Number(session.sharpeRatio) || 0, totalTrades: session.totalTrades || 0,
+        benchmarkReturn: Number(session.benchmarkReturn) || 0,
+      });
+      const analysisText = JSON.stringify(analysis);
+      await db.update(backtestSessions).set({ aiAnalysis: analysisText }).where(eq(backtestSessions.id, input.id));
+      return { analysis };
+    }),
+  }),
+
+  cache: router({
+    status: publicProcedure.query(async () => {
+      const status = await getCacheStatus();
+      const warming = getCacheWarmingStatus();
+      return { cacheEntries: status, warming };
+    }),
+    warmDaily: protectedProcedure.input(z.object({
+      symbols: z.array(z.string()).optional(),
+    })).mutation(async ({ input }) => {
+      const symbols = input.symbols || STOCK_POOL.map(s => s.symbol);
+      warmCacheForSymbols(symbols, ["1d"]).catch(err => console.error("[Cache] Warming error:", err));
+      return { message: `开始缓存 ${symbols.length} 只股票的日线数据（自动重试失败项）`, total: symbols.length };
+    }),
+    warmingStatus: publicProcedure.query(() => getCacheWarmingStatus()),
+  }),
+
+  health: router({
+    sources: publicProcedure.query(async () => {
+      const db = await getDb();
+      if (!db) return [];
+      return db.select().from(dataSourceHealth).orderBy(dataSourceHealth.source);
+    }),
+    geminiStatus: publicProcedure.query(async () => {
+      const connected = await testGeminiConnection().catch(() => false);
+      return { connected, model: ENV.geminiModel, baseUrl: ENV.geminiBaseUrl };
+    }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;

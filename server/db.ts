@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users } from "../drizzle/schema";
 import { ENV } from './_core/env';
+import bcrypt from "bcryptjs";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -89,4 +90,53 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+// ============================================================
+// Simple Auth Helpers
+// ============================================================
+
+export async function getUserByUsername(username: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(users).where(eq(users.username, username)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function registerUser(username: string, password: string, name?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const existing = await getUserByUsername(username);
+  if (existing) throw new Error("用户名已存在");
+  const passwordHash = await bcrypt.hash(password, 10);
+  const openId = `local_${username}`;
+  await db.insert(users).values({
+    openId, username, passwordHash,
+    name: name || username,
+    loginMethod: "password",
+    lastSignedIn: new Date(),
+  });
+  return getUserByOpenId(openId);
+}
+
+export async function verifyPassword(username: string, password: string) {
+  const user = await getUserByUsername(username);
+  if (!user || !user.passwordHash) return null;
+  const valid = await bcrypt.compare(password, user.passwordHash);
+  if (!valid) return null;
+  const db = await getDb();
+  if (db) await db.update(users).set({ lastSignedIn: new Date() }).where(eq(users.id, user.id));
+  return user;
+}
+
+export async function changePassword(userId: number, oldPassword: string, newPassword: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  if (result.length === 0) throw new Error("用户不存在");
+  const user = result[0];
+  if (!user.passwordHash) throw new Error("该用户未设置密码");
+  const valid = await bcrypt.compare(oldPassword, user.passwordHash);
+  if (!valid) throw new Error("旧密码错误");
+  const newHash = await bcrypt.hash(newPassword, 10);
+  await db.update(users).set({ passwordHash: newHash, updatedAt: new Date() }).where(eq(users.id, userId));
+  return true;
+}

@@ -1,0 +1,60 @@
+# 量化回测平台 (tzlh-quant) - Project TODO
+
+## 数据库 Schema 迁移
+- [x] 迁移用户表（users，增加 username/password 字段）
+- [x] 迁移回测会话表（backtestSessions）
+- [x] 迁移交易记录表（backtestTrades）
+- [x] 迁移 K 线缓存表（klineCache）
+- [x] 迁移缓存元数据表（cacheMetadata）
+- [x] 迁移数据源健康监控表（dataSourceHealth）
+
+## 服务端核心模块迁移
+- [x] 迁移 marketData.ts（多数据源 K 线获取：Alpaca/Stooq/Yahoo/Tiingo/Finnhub/AV/Polygon/TwelveData/MarketStack）
+- [x] 迁移 indicators.ts（MACD/黄蓝梯子/CD/RSI/布林带/ATR）
+- [x] 迁移 backtestEngine.ts（6种策略回测引擎）
+- [x] 迁移 cacheManager.ts（缓存读写管理）
+- [x] 迁移 shared/stockPool.ts（793只美股股票池）
+- [x] 迁移 shared/types.ts 和 shared/const.ts
+
+## API 密钥配置
+- [x] 配置 Alpaca API Key + Secret Key
+- [x] 配置 AlphaVantage API Key
+- [x] 配置 Tiingo API Key
+- [x] 配置 Finnhub API Key
+- [x] 配置 Gemini AI API Key（GOOGLE_GEMINI_BASE_URL/GEMINI_API_KEY/GEMINI_MODEL）
+- [x] 集成额外3个免费股票 API（Polygon.io / Twelve Data / MarketStack）
+
+## Gemini AI 策略集成
+- [x] 创建 geminiStrategy.ts（Gemini AI 策略分析模块）
+- [x] 实现 AI 策略分析路由（analyzeBacktestResult/generateGeminiStrategy/testGeminiConnection）
+- [x] 前端 AI 信号展示（K线图/回测详情/回测中心）
+
+## tRPC 路由迁移
+- [x] chart 路由（getCandles/getIndicators/getAISignal）
+- [x] backtest 路由（strategies/create/list/detail/progress/delete/batchDelete/exportExcel/aiAnalyze）
+- [x] stockPool 路由（list/sectors）
+- [x] cache 路由（status/warmDaily）
+- [x] health 路由（sources/geminiStatus）
+- [x] auth 路由（register/login/changePassword/logout/me）
+
+## 前端界面构建
+- [x] 安装 lightweight-charts 依赖
+- [x] 深色量化平台主题（index.css）
+- [x] DashboardLayout（侧边栏导航，支持未登录访问）
+- [x] Home/Dashboard 页面（总览、功能入口、状态监控）
+- [x] ChartPage（K线图 + 技术指标 + AI信号）
+- [x] BacktestPage（回测配置 + 历史记录 + 批量操作）
+- [x] BacktestDetailPage（回测详情 + AI分析 + 交易记录 + Excel导出）
+- [x] StockPoolPage（793只美股 + 行业筛选 + 分页）
+- [x] CachePage（缓存状态/预热/缓存详情）
+- [x] HealthPage（9个数据源健康监控 + Gemini状态）
+- [x] AuthPage（登录/注册页面）
+- [x] 配置 App.tsx 路由
+
+## 测试
+- [x] server/apikeys.test.ts（8项 API 密钥配置测试，全部通过）
+- [x] server/auth.logout.test.ts（登出功能测试）
+
+## 部署
+- [ ] 保存 checkpoint 供用户检查
+- [ ] 用户确认后 publish

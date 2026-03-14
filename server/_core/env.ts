@@ -7,4 +7,18 @@ export const ENV = {
   isProduction: process.env.NODE_ENV === "production",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
+  // Market data API keys
+  alpacaApiKey: process.env.ALPACA_API_KEY ?? "",
+  alpacaSecretKey: process.env.ALPACA_SECRET_KEY ?? "",
+  alphaVantageApiKey: process.env.ALPHAVANTAGE_API_KEY ?? "",
+  tiingoApiKey: process.env.TIINGO_API_KEY ?? "",
+  finnhubApiKey: process.env.FINNHUB_API_KEY ?? "",
+  // Additional free data sources
+  polygonApiKey: process.env.POLYGON_API_KEY ?? "",
+  twelveDataApiKey: process.env.TWELVE_DATA_API_KEY ?? "",
+  marketstackApiKey: process.env.MARKETSTACK_API_KEY ?? "",
+  // Gemini AI
+  geminiApiKey: process.env.GEMINI_API_KEY ?? "",
+  geminiBaseUrl: process.env.GOOGLE_GEMINI_BASE_URL ?? "https://openfly.cc/antigravity",
+  geminiModel: process.env.GEMINI_MODEL ?? "gemini-2.0-flash",
 };
