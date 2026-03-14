@@ -1,24 +1,62 @@
 /**
- * Cache Manager v2 - manages historical candle data in the database
- * Features: auto-retry on failure, batch merging, progress tracking
+ * Cache Manager v3 - High-Performance Multi-Source Cache
+ *
+ * Key improvements over v2:
+ * 1. True concurrent fetching with configurable concurrency limit (8 parallel)
+ * 2. All 9 data sources used via fetchHistoricalCandles failover chain
+ * 3. Alpaca batch: up to 200 symbols per request (was 50)
+ * 4. Concurrent fallback: failed symbols fetched in parallel (not serial)
+ * 5. Concurrent DB saves: all saves happen in parallel
+ * 6. Smart retry: reduced concurrency to avoid hammering APIs
+ * 7. Speed tracking: symbols/second metric
  */
 import { getDb } from "./db";
 import { historicalCandleCache, cacheMetadata } from "../drizzle/schema";
-import { fetchHistoricalCandles, fetchAlpacaBatchCandles, type Candle, type Timeframe } from "./marketData";
+import {
+  fetchAlpacaBatchCandles,
+  fetchHistoricalCandles,
+  type Candle,
+  type Timeframe,
+} from "./marketData";
 import { eq, and, gte, lte, sql } from "drizzle-orm";
+import { ENV } from "./_core/env";
 
-const CACHE_TIMEFRAMES: Timeframe[] = ["1d", "1h", "15m"];
+// ============================================================
+// Constants
+// ============================================================
 const HISTORY_YEARS: Record<string, number> = { "1d": 10, "1h": 5, "15m": 2 };
-const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 5000;
+const MAX_RETRIES = 2;
+const CONCURRENCY = 8;           // Max parallel API requests
+const ALPACA_BATCH_SIZE = 200;   // Alpaca supports up to 200 symbols per batch
+const SAVE_BATCH_SIZE = 500;     // DB insert batch size
 
 function formatDate(d: Date): string {
   return d.toISOString().split("T")[0];
 }
-
 function candleDateKey(c: Candle, timeframe: string): string {
   if (timeframe === "1d") return new Date(c.time).toISOString().split("T")[0];
   return new Date(c.time).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+// ============================================================
+// Concurrency limiter (semaphore pattern)
+// ============================================================
+class Semaphore {
+  private count: number;
+  private queue: Array<() => void> = [];
+  constructor(limit: number) { this.count = limit; }
+  async acquire(): Promise<void> {
+    if (this.count > 0) { this.count--; return; }
+    return new Promise(resolve => this.queue.push(resolve));
+  }
+  release(): void {
+    if (this.queue.length > 0) {
+      const next = this.queue.shift()!;
+      next();
+    } else {
+      this.count++;
+    }
+  }
 }
 
 // ============================================================
@@ -45,7 +83,6 @@ export async function getCandlesFromCache(
         lte(historicalCandleCache.date, endDate)
       )
     ).orderBy(historicalCandleCache.date);
-
     if (candles.length === 0) return null;
     return candles.map(c => ({
       time: new Date(c.date).getTime(),
@@ -63,9 +100,8 @@ export async function saveCandlesToCache(symbol: string, timeframe: string, cand
   try {
     const db = await getDb();
     if (!db) return;
-    const batchSize = 500;
-    for (let i = 0; i < candles.length; i += batchSize) {
-      const batch = candles.slice(i, i + batchSize);
+    for (let i = 0; i < candles.length; i += SAVE_BATCH_SIZE) {
+      const batch = candles.slice(i, i + SAVE_BATCH_SIZE);
       const values = batch.map(c => ({
         symbol, timeframe,
         date: candleDateKey(c, timeframe),
@@ -96,7 +132,6 @@ async function updateCacheMetadata(symbol: string, timeframe: string): Promise<v
   try {
     const db = await getDb();
     if (!db) return;
-    // Use COUNT and MIN/MAX for efficiency instead of fetching all rows
     const stats = await db.select({
       cnt: sql<number>`COUNT(*)`,
       oldest: sql<string>`MIN(date)`,
@@ -104,14 +139,11 @@ async function updateCacheMetadata(symbol: string, timeframe: string): Promise<v
     }).from(historicalCandleCache).where(
       and(eq(historicalCandleCache.symbol, symbol), eq(historicalCandleCache.timeframe, timeframe))
     );
-
     if (!stats[0] || stats[0].cnt === 0) return;
     const { cnt, oldest, newest } = stats[0];
-
     const existing = await db.select().from(cacheMetadata).where(
       and(eq(cacheMetadata.symbol, symbol), eq(cacheMetadata.timeframe, timeframe))
     ).limit(1);
-
     if (existing.length === 0) {
       await db.insert(cacheMetadata).values({
         symbol, timeframe, oldestDate: oldest, newestDate: newest,
@@ -129,33 +161,91 @@ async function updateCacheMetadata(symbol: string, timeframe: string): Promise<v
 }
 
 // ============================================================
-// Cache warming with auto-retry
+// Progress tracking
 // ============================================================
 let isCacheWarming = false;
-let cacheWarmingProgress = { total: 0, completed: 0, current: "", errors: 0, retrying: 0 };
+let cacheWarmingProgress = {
+  total: 0,
+  completed: 0,
+  current: "",
+  errors: 0,
+  retrying: 0,
+  sourceStats: {} as Record<string, { success: number; failed: number }>,
+  startTime: 0,
+};
 
 export function getCacheWarmingStatus() {
-  return { isWarming: isCacheWarming, ...cacheWarmingProgress };
+  const elapsed = cacheWarmingProgress.startTime
+    ? (Date.now() - cacheWarmingProgress.startTime) / 1000
+    : 0;
+  const speed = elapsed > 0 ? Math.round(cacheWarmingProgress.completed / elapsed * 10) / 10 : 0;
+  return {
+    isWarming: isCacheWarming,
+    ...cacheWarmingProgress,
+    speed,
+    elapsedSeconds: Math.round(elapsed),
+  };
 }
 
-async function fetchWithRetry(
-  symbol: string, timeframe: Timeframe, startDate: string, endDate: string
-): Promise<Candle[]> {
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+// ============================================================
+// Concurrent batch processing
+// ============================================================
+
+/**
+ * Save multiple symbols' candles to cache concurrently.
+ */
+async function saveAllConcurrently(
+  symbolCandles: Map<string, Candle[]>,
+  timeframe: string
+): Promise<void> {
+  const savePromises = Array.from(symbolCandles.entries()).map(([symbol, candles]) =>
+    saveCandlesToCache(symbol, timeframe, candles).catch(err =>
+      console.error(`[Cache] Save failed for ${symbol}/${timeframe}:`, err)
+    )
+  );
+  await Promise.allSettled(savePromises);
+}
+
+/**
+ * Process a batch of symbols concurrently using the semaphore.
+ */
+async function processConcurrentBatch(
+  symbols: string[],
+  timeframe: Timeframe,
+  startDate: string,
+  endDate: string,
+  semaphore: Semaphore,
+  onSymbolDone: (symbol: string, success: boolean) => void
+): Promise<{ successes: Map<string, Candle[]>; failures: string[] }> {
+  const successes = new Map<string, Candle[]>();
+  const failures: string[] = [];
+
+  const tasks = symbols.map(symbol => async () => {
+    await semaphore.acquire();
     try {
       const candles = await fetchHistoricalCandles(symbol, timeframe, startDate, endDate);
-      if (candles.length > 0) return candles;
-    } catch (err) {
-      if (attempt < MAX_RETRIES - 1) {
-        const delay = RETRY_DELAY_MS * (attempt + 1);
-        console.log(`[Cache] Retry ${attempt + 1}/${MAX_RETRIES} for ${symbol}/${timeframe} in ${delay}ms`);
-        await new Promise(r => setTimeout(r, delay));
+      if (candles.length > 0) {
+        successes.set(symbol, candles);
+        onSymbolDone(symbol, true);
+      } else {
+        failures.push(symbol);
+        onSymbolDone(symbol, false);
       }
+    } catch {
+      failures.push(symbol);
+      onSymbolDone(symbol, false);
+    } finally {
+      semaphore.release();
     }
-  }
-  return [];
+  });
+
+  await Promise.allSettled(tasks.map(t => t()));
+  return { successes, failures };
 }
 
+// ============================================================
+// Main warmCache function - v3 with full concurrency
+// ============================================================
 export async function warmCacheForSymbols(
   symbols: string[],
   timeframes: Timeframe[] = ["1d"],
@@ -163,11 +253,18 @@ export async function warmCacheForSymbols(
 ): Promise<{ success: number; failed: number }> {
   if (isCacheWarming) throw new Error("Cache warming already in progress");
   isCacheWarming = true;
-  cacheWarmingProgress = { total: symbols.length * timeframes.length, completed: 0, current: "", errors: 0, retrying: 0 };
+  cacheWarmingProgress = {
+    total: symbols.length * timeframes.length,
+    completed: 0,
+    current: "初始化...",
+    errors: 0,
+    retrying: 0,
+    sourceStats: {},
+    startTime: Date.now(),
+  };
 
-  let success = 0;
-  let failed = 0;
-  const failedSymbols: Array<{ symbol: string; timeframe: Timeframe }> = [];
+  let totalSuccess = 0;
+  let totalFailed = 0;
 
   try {
     for (const tf of timeframes) {
@@ -176,109 +273,184 @@ export async function warmCacheForSymbols(
       const startDate = formatDate(new Date(now.getTime() - years * 365 * 86400000));
       const endDate = formatDate(now);
 
-      // For daily/hourly data, use Alpaca batch (up to 50 symbols at a time)
-      if (tf === "1d" || tf === "1h") {
-        const batchSize = 50; // Alpaca supports up to 200, but 50 is safer
-        for (let i = 0; i < symbols.length; i += batchSize) {
-          const batch = symbols.slice(i, i + batchSize);
-          cacheWarmingProgress.current = `${tf}: ${batch[0]}...${batch[batch.length - 1]} (${i + 1}-${Math.min(i + batchSize, symbols.length)}/${symbols.length})`;
+      console.log(`[Cache v3] Starting ${tf} for ${symbols.length} symbols (concurrency=${CONCURRENCY}, alpacaBatch=${ALPACA_BATCH_SIZE})`);
+      cacheWarmingProgress.current = `${tf}: 准备批量请求 ${symbols.length} 只股票...`;
+      onProgress?.(cacheWarmingProgress.current);
+
+      // -------------------------------------------------------
+      // Phase 1: Alpaca batch (most efficient - up to 200/request)
+      // -------------------------------------------------------
+      const alpacaSucceeded = new Set<string>();
+      const alpacaFailed: string[] = [];
+
+      if (ENV.alpacaApiKey && ENV.alpacaSecretKey) {
+        const totalBatches = Math.ceil(symbols.length / ALPACA_BATCH_SIZE);
+        cacheWarmingProgress.current = `${tf}: Alpaca 批量 (${totalBatches} 批, 每批最多 ${ALPACA_BATCH_SIZE} 只)...`;
+        onProgress?.(cacheWarmingProgress.current);
+
+        for (let i = 0; i < symbols.length; i += ALPACA_BATCH_SIZE) {
+          const batch = symbols.slice(i, i + ALPACA_BATCH_SIZE);
+          const batchNum = Math.floor(i / ALPACA_BATCH_SIZE) + 1;
+          cacheWarmingProgress.current = `${tf}: Alpaca 批次 ${batchNum}/${totalBatches} (${batch.length} 只)`;
           onProgress?.(cacheWarmingProgress.current);
 
           try {
             const batchResult = await fetchAlpacaBatchCandles(batch, tf, startDate, endDate);
+            const saveMap = new Map<string, Candle[]>();
+
             for (const [sym, candles] of Array.from(batchResult.entries())) {
               if (candles.length > 0) {
-                await saveCandlesToCache(sym, tf, candles);
-                success++;
+                saveMap.set(sym, candles);
+                alpacaSucceeded.add(sym);
               } else {
-                // Mark for retry
-                failedSymbols.push({ symbol: sym, timeframe: tf });
+                alpacaFailed.push(sym);
               }
-              cacheWarmingProgress.completed++;
             }
-            // Handle symbols not in batch result
             for (const sym of batch) {
-              if (!batchResult.has(sym)) {
-                failedSymbols.push({ symbol: sym, timeframe: tf });
-                cacheWarmingProgress.completed++;
-              }
+              if (!batchResult.has(sym)) alpacaFailed.push(sym);
             }
+
+            // Save all in parallel
+            await saveAllConcurrently(saveMap, tf);
+            cacheWarmingProgress.completed += batch.length;
+            totalSuccess += saveMap.size;
+
+            if (!cacheWarmingProgress.sourceStats["alpaca"]) {
+              cacheWarmingProgress.sourceStats["alpaca"] = { success: 0, failed: 0 };
+            }
+            cacheWarmingProgress.sourceStats["alpaca"].success += saveMap.size;
+            cacheWarmingProgress.sourceStats["alpaca"].failed += (batch.length - saveMap.size);
+
+            console.log(`[Cache v3] Alpaca batch ${batchNum}/${totalBatches}: ${saveMap.size}/${batch.length} succeeded`);
           } catch (err) {
-            console.error(`[Cache] Batch fetch failed for ${tf}:`, err);
-            // All symbols in this batch need individual retry
-            for (const sym of batch) {
-              failedSymbols.push({ symbol: sym, timeframe: tf });
-              cacheWarmingProgress.completed++;
-            }
+            console.error(`[Cache v3] Alpaca batch ${batchNum} failed:`, err);
+            for (const sym of batch) alpacaFailed.push(sym);
+            cacheWarmingProgress.completed += batch.length;
           }
-          // Rate limit between batches
-          await new Promise(r => setTimeout(r, 500));
+
+          // Minimal delay between Alpaca batches
+          if (i + ALPACA_BATCH_SIZE < symbols.length) {
+            await new Promise(r => setTimeout(r, 150));
+          }
         }
+
+        console.log(`[Cache v3] Alpaca phase done: ${alpacaSucceeded.size} succeeded, ${alpacaFailed.length} need fallback`);
       } else {
-        // For other timeframes, fetch individually with retry
-        for (const sym of symbols) {
-          cacheWarmingProgress.current = `${tf}: ${sym}`;
-          try {
-            const candles = await fetchHistoricalCandles(sym, tf, startDate, endDate);
-            if (candles.length > 0) { await saveCandlesToCache(sym, tf, candles); success++; }
-            else { failedSymbols.push({ symbol: sym, timeframe: tf }); }
-          } catch { failedSymbols.push({ symbol: sym, timeframe: tf }); }
-          cacheWarmingProgress.completed++;
-          await new Promise(r => setTimeout(r, 200));
-        }
+        // No Alpaca keys - all symbols need fallback
+        for (const sym of symbols) alpacaFailed.push(sym);
+        cacheWarmingProgress.completed += symbols.length;
       }
-    }
 
-    // ============================================================
-    // Auto-retry failed symbols (up to MAX_RETRIES rounds)
-    // ============================================================
-    if (failedSymbols.length > 0) {
-      console.log(`[Cache] Starting retry for ${failedSymbols.length} failed symbols...`);
-      cacheWarmingProgress.retrying = failedSymbols.length;
+      // -------------------------------------------------------
+      // Phase 2: Concurrent fallback for Alpaca failures
+      // Uses all other sources (Tiingo, Yahoo, Stooq, Finnhub, Polygon, etc.)
+      // -------------------------------------------------------
+      if (alpacaFailed.length > 0) {
+        const uniqueFailed = Array.from(new Set(alpacaFailed));
+        console.log(`[Cache v3] Fallback phase: ${uniqueFailed.length} symbols, concurrency=${CONCURRENCY}`);
 
-      for (let round = 0; round < MAX_RETRIES && failedSymbols.length > 0; round++) {
-        const retryBatch = [...failedSymbols];
-        failedSymbols.length = 0;
+        // Reset completed count for fallback (we already counted these in Alpaca phase)
+        cacheWarmingProgress.completed -= uniqueFailed.length;
+        cacheWarmingProgress.current = `${tf}: 并发补充 ${uniqueFailed.length} 只 (并发=${CONCURRENCY})...`;
+        onProgress?.(cacheWarmingProgress.current);
 
-        cacheWarmingProgress.current = `重试第${round + 1}轮: ${retryBatch.length}个失败项`;
-        await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (round + 1)));
+        const semaphore = new Semaphore(CONCURRENCY);
+        let fallbackSuccess = 0;
+        let fallbackFailed = 0;
 
-        for (const item of retryBatch) {
-          const now = new Date();
-          const years = HISTORY_YEARS[item.timeframe] || 5;
-          const startDate = formatDate(new Date(now.getTime() - years * 365 * 86400000));
-          const endDate = formatDate(now);
-
-          cacheWarmingProgress.current = `重试: ${item.symbol}/${item.timeframe} (第${round + 1}轮)`;
-          try {
-            const candles = await fetchWithRetry(item.symbol, item.timeframe, startDate, endDate);
-            if (candles.length > 0) {
-              await saveCandlesToCache(item.symbol, item.timeframe, candles);
-              success++;
-              cacheWarmingProgress.retrying--;
+        const { successes, failures } = await processConcurrentBatch(
+          uniqueFailed,
+          tf,
+          startDate,
+          endDate,
+          semaphore,
+          (symbol, success) => {
+            if (success) {
+              fallbackSuccess++;
+              if (!cacheWarmingProgress.sourceStats["fallback"]) {
+                cacheWarmingProgress.sourceStats["fallback"] = { success: 0, failed: 0 };
+              }
+              cacheWarmingProgress.sourceStats["fallback"].success++;
             } else {
-              failedSymbols.push(item);
+              fallbackFailed++;
             }
-          } catch {
-            failedSymbols.push(item);
+            cacheWarmingProgress.completed++;
+            const elapsed = (Date.now() - cacheWarmingProgress.startTime) / 1000;
+            const speed = elapsed > 0 ? (cacheWarmingProgress.completed / elapsed).toFixed(1) : "0";
+            cacheWarmingProgress.current = `${tf}: 并发补充 ${cacheWarmingProgress.completed}/${cacheWarmingProgress.total} (${speed}/s)`;
           }
-          await new Promise(r => setTimeout(r, 300));
+        );
+
+        // Save fallback results concurrently
+        if (successes.size > 0) {
+          await saveAllConcurrently(successes, tf);
+        }
+
+        totalSuccess += fallbackSuccess;
+        totalFailed += fallbackFailed;
+        cacheWarmingProgress.errors = totalFailed;
+
+        console.log(`[Cache v3] Fallback phase done: ${fallbackSuccess} succeeded, ${fallbackFailed} failed`);
+
+        // -------------------------------------------------------
+        // Phase 3: Concurrent retry for permanently failed symbols
+        // -------------------------------------------------------
+        if (failures.length > 0) {
+          cacheWarmingProgress.retrying = failures.length;
+          cacheWarmingProgress.current = `${tf}: 重试 ${failures.length} 只失败股票...`;
+          onProgress?.(cacheWarmingProgress.current);
+
+          console.log(`[Cache v3] Retry phase: ${failures.length} symbols`);
+
+          // Use reduced concurrency for retry
+          const retrySemaphore = new Semaphore(Math.max(2, Math.floor(CONCURRENCY / 2)));
+
+          const { successes: retrySuccesses, failures: finalFailures } = await processConcurrentBatch(
+            failures,
+            tf,
+            startDate,
+            endDate,
+            retrySemaphore,
+            (symbol, success) => {
+              if (success) {
+                totalSuccess++;
+                totalFailed = Math.max(0, totalFailed - 1);
+                if (!cacheWarmingProgress.sourceStats["retry"]) {
+                  cacheWarmingProgress.sourceStats["retry"] = { success: 0, failed: 0 };
+                }
+                cacheWarmingProgress.sourceStats["retry"].success++;
+              }
+              cacheWarmingProgress.retrying = Math.max(0, cacheWarmingProgress.retrying - 1);
+              cacheWarmingProgress.current = `${tf}: 重试中... (剩余 ${cacheWarmingProgress.retrying})`;
+            }
+          );
+
+          if (retrySuccesses.size > 0) {
+            await saveAllConcurrently(retrySuccesses, tf);
+          }
+
+          totalFailed = finalFailures.length;
+          cacheWarmingProgress.errors = totalFailed;
+
+          console.log(`[Cache v3] Retry phase done: ${retrySuccesses.size} recovered, ${finalFailures.length} permanently failed`);
         }
       }
-
-      failed = failedSymbols.length;
-      cacheWarmingProgress.errors = failed;
     }
   } finally {
     isCacheWarming = false;
-    cacheWarmingProgress.current = failed > 0
-      ? `完成: ${success}成功, ${failed}失败`
-      : `全部完成: ${success}个`;
+    const elapsed = Math.round((Date.now() - cacheWarmingProgress.startTime) / 1000);
+    cacheWarmingProgress.current = totalFailed > 0
+      ? `完成: ${totalSuccess} 成功, ${totalFailed} 失败 (耗时 ${elapsed}s)`
+      : `全部完成: ${totalSuccess} 个 (耗时 ${elapsed}s)`;
+    console.log(`[Cache v3] Warming complete: ${totalSuccess} success, ${totalFailed} failed, ${elapsed}s elapsed`);
   }
 
-  return { success, failed };
+  return { success: totalSuccess, failed: totalFailed };
 }
 
+// ============================================================
+// getCacheStatus - returns all cache metadata
+// ============================================================
 export async function getCacheStatus(): Promise<Array<{
   symbol: string; timeframe: string; candleCount: number | null;
   oldestDate: string | null; newestDate: string | null; status: string | null;
@@ -296,8 +468,8 @@ export async function getCacheStatus(): Promise<Array<{
 }
 
 /**
- * Get candles with cache-first strategy
- * Has a 30s total timeout to prevent hanging on slow/failing data sources
+ * Get candles with cache-first strategy.
+ * Has a 30s total timeout to prevent hanging on slow/failing data sources.
  */
 export async function getCandlesWithCache(
   symbol: string, timeframe: Timeframe, startDate?: string, endDate?: string
@@ -306,13 +478,13 @@ export async function getCandlesWithCache(
   const sd = startDate || formatDate(new Date(now.getTime() - (HISTORY_YEARS[timeframe] || 5) * 365 * 86400000));
   const ed = endDate || formatDate(now);
 
-  // Try cache first (fast path, no timeout needed)
+  // Try cache first (fast path)
   try {
     const cached = await getCandlesFromCache(symbol, timeframe, sd, ed);
     if (cached && cached.length > 50) return cached;
   } catch { /* ignore cache errors */ }
 
-  // Fetch from API with 30s total timeout to prevent hanging
+  // Fetch from API with 30s timeout
   try {
     const timeoutPromise = new Promise<Candle[]>((_, reject) =>
       setTimeout(() => reject(new Error(`Timeout fetching ${symbol}/${timeframe}`)), 30000)

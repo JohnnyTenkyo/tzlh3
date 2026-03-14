@@ -1,11 +1,10 @@
-import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { Database, RefreshCw, Zap } from "lucide-react";
+import { Activity, Database, RefreshCw, Zap } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { STOCK_POOL } from "@shared/stockPool";
 
@@ -29,7 +28,7 @@ export default function CachePage() {
     onError: (e) => toast.error(e.message),
   });
 
-  const warming = cacheStatus?.warming;
+  const warming = cacheStatus?.warming as any;
   const entries = cacheStatus?.cacheEntries || [];
 
   const groupedEntries = entries.reduce((acc: Record<string, any[]>, entry: any) => {
@@ -83,17 +82,49 @@ export default function CachePage() {
       {/* Warming Progress */}
       {warming?.isWarming && (
         <Card className="bg-card border-border border-orange-500/30">
-          <CardContent className="pt-4 pb-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-orange-400">缓存预热进行中</span>
-              <span className="text-xs text-muted-foreground">
-                {warming.completed}/{warming.total}
+          <CardContent className="pt-4 pb-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-orange-400 flex items-center gap-2">
+                <Activity className="h-4 w-4 animate-pulse" /> 缓存预热进行中
               </span>
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                {warming.speed > 0 && (
+                  <span className="text-green-400 font-mono">{warming.speed} 只/秒</span>
+                )}
+                {warming.elapsedSeconds > 0 && (
+                  <span>已用 {warming.elapsedSeconds}s</span>
+                )}
+                <span>{warming.completed}/{warming.total}</span>
+              </div>
             </div>
             <Progress value={warming.total > 0 ? (warming.completed / warming.total) * 100 : 0} className="h-2" />
             {warming.current && (
-              <p className="text-xs text-muted-foreground mt-1">当前: {warming.current}</p>
+              <p className="text-xs text-muted-foreground font-mono truncate">▶ {warming.current}</p>
             )}
+            {/* Source stats */}
+            {warming.sourceStats && Object.keys(warming.sourceStats).length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-1">
+                {Object.entries(warming.sourceStats as Record<string, { success: number; failed: number }>).map(([src, stat]) => (
+                  <div key={src} className="flex items-center gap-1 text-xs bg-muted/30 rounded px-2 py-0.5">
+                    <span className="text-muted-foreground capitalize">{src}:</span>
+                    <span className="text-green-400">{stat.success}✓</span>
+                    {stat.failed > 0 && <span className="text-red-400">{stat.failed}✗</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {warming.retrying > 0 && (
+              <p className="text-xs text-yellow-400">🔄 重试中: {warming.retrying} 只</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Last warming result (not warming) */}
+      {!warming?.isWarming && warming?.current && warming.current.includes('完成') && (
+        <Card className="bg-card border-border border-green-500/20">
+          <CardContent className="pt-3 pb-3">
+            <p className="text-xs text-green-400">✓ {warming.current}</p>
           </CardContent>
         </Card>
       )}
