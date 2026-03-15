@@ -127,3 +127,12 @@
 - [x] BacktestPage.tsx：单策略回测 onSuccess 添加 toast 提示"回测已启动"，600ms 后跳转到详情页
 - [x] BacktestPage.tsx：多策略对比 onSuccess 添加 toast 提示已启动数量，自动切换到历史记录 Tab
 - [x] BacktestPage.tsx：将 Tabs 改为受控模式（activeConfigTab state），支持代码自动切换 Tab
+
+## 第九轮：缓存预热页面板块/市值筛选 + Alpaca API 更新
+- [x] CachePage.tsx：添加行业板块多选筛选（同 BacktestPage 逻辑）
+- [x] CachePage.tsx：添加市值区间多选筛选（同 BacktestPage 逻辑）
+- [x] CachePage.tsx：已选条件以标签形式显示，支持单个删除
+- [x] CachePage.tsx：预热按钮显示筛选后的股票数量
+- [x] env.ts：添加 alpacaEndpoint 字段（默认 https://data.alpaca.markets/v2）
+- [x] marketData.ts：更新 fetchAlpacaCandles 和 fetchAlpacaBatchCandles 使用 ENV.alpacaEndpoint
+- [x] Alpaca API 密钥和 Endpoint 已更新（webdev_request_secrets）

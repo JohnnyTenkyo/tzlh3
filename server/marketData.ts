@@ -81,6 +81,7 @@ function aggregateToWeekly(candles: Candle[]): Candle[] {
 async function fetchAlpacaCandles(symbol: string, timeframe: Timeframe, startDate?: string, endDate?: string): Promise<Candle[]> {
   const apiKey = ENV.alpacaApiKey;
   const secretKey = ENV.alpacaSecretKey;
+  const endpoint = ENV.alpacaEndpoint;
   if (!apiKey || !secretKey) throw new Error("ALPACA keys not set");
   if (!BASE_TIMEFRAMES.includes(timeframe)) throw new Error(`Alpaca: unsupported ${timeframe}`);
 
@@ -108,7 +109,7 @@ async function fetchAlpacaCandles(symbol: string, timeframe: Timeframe, startDat
     if (nextPageToken) params.page_token = nextPageToken;
 
     try {
-      const res = await axios.get("https://data.alpaca.markets/v2/stocks/bars", { params, headers, timeout: 8000 });
+      const res = await axios.get(`${endpoint}/stocks/bars`, { params, headers, timeout: 8000 });
       const bars = res.data?.bars?.[symbol];
       if (!Array.isArray(bars) || bars.length === 0) break;
 
@@ -134,6 +135,7 @@ export async function fetchAlpacaBatchCandles(
 ): Promise<Map<string, Candle[]>> {
   const apiKey = ENV.alpacaApiKey;
   const secretKey = ENV.alpacaSecretKey;
+  const endpoint = ENV.alpacaEndpoint;
   if (!apiKey || !secretKey) throw new Error("ALPACA keys not set");
   if (!BASE_TIMEFRAMES.includes(timeframe)) throw new Error(`Alpaca batch: unsupported ${timeframe}`);
 
@@ -156,7 +158,7 @@ export async function fetchAlpacaBatchCandles(
     if (nextPageToken) params.page_token = nextPageToken;
 
     try {
-      const res = await axios.get("https://data.alpaca.markets/v2/stocks/bars", { params, headers, timeout: 8000 });
+      const res = await axios.get(`${endpoint}/stocks/bars`, { params, headers, timeout: 8000 });
       const bars = res.data?.bars;
       if (bars) {
         for (const [sym, symBars] of Object.entries(bars)) {

@@ -6,7 +6,11 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Activity, Database, RefreshCw, Zap } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { STOCK_POOL } from "@shared/stockPool";
+import { STOCK_POOL, SECTOR_LABELS, MARKET_CAP_TIER_LABELS, filterStocks, type StockSector, type MarketCapTier } from "@shared/stockPool";
+import { useState } from "react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { Filter, ChevronDown, ChevronUp, X } from "lucide-react";
 
 const QUICK_WARM_GROUPS = [
   { label: "AI & 科技 TOP 20", symbols: ["NVDA", "MSFT", "AAPL", "GOOGL", "META", "AMZN", "TSLA", "AMD", "INTC", "QCOM", "AVGO", "MU", "AMAT", "LRCX", "KLAC", "TSM", "ASML", "ARM", "SMCI", "PLTR"] },
@@ -17,6 +21,23 @@ const QUICK_WARM_GROUPS = [
 export default function CachePage() {
   const { isAuthenticated } = useAuth();
   const utils = trpc.useUtils();
+  const [showPoolFilter, setShowPoolFilter] = useState(false);
+  const [selectedSectors, setSelectedSectors] = useState<StockSector[]>([]);
+  const [selectedCapTiers, setSelectedCapTiers] = useState<MarketCapTier[]>([]);
+  const [filteredSymbols, setFilteredSymbols] = useState<string[]>(STOCK_POOL.map(s => s.symbol));
+
+  // Helper to update filtered symbols
+  const updateFiltered = (sectors: StockSector[], tiers: MarketCapTier[]) => {
+    if (sectors.length === 0 && tiers.length === 0) {
+      setFilteredSymbols(STOCK_POOL.map(s => s.symbol));
+    } else {
+      const filtered = filterStocks(STOCK_POOL, {
+        sectors: sectors.length > 0 ? sectors : undefined,
+        marketCapTiers: tiers.length > 0 ? tiers : undefined,
+      });
+      setFilteredSymbols(filtered.map(s => s.symbol));
+    }
+  };
 
   const { data: cacheStatus, isLoading, refetch } = trpc.cache.status.useQuery(
     undefined,
@@ -137,41 +158,158 @@ export default function CachePage() {
           </CardContent>
         </Card>
       ) : (
-        <Card className="bg-card border-border">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Zap className="h-4 w-4 text-yellow-400" /> 快速预热
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex flex-wrap gap-2">
-              {QUICK_WARM_GROUPS.map(group => (
+        <>
+          {/* Quick Warm Groups */}
+          <Card className="bg-card border-border">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <Zap className="h-4 w-4 text-yellow-400" /> 快速预热
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                {QUICK_WARM_GROUPS.map(group => (
+                  <Button
+                    key={group.label}
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => warmMutation.mutate({ symbols: group.symbols })}
+                    disabled={warmMutation.isPending || warming?.isWarming}
+                  >
+                    {group.label} ({group.symbols.length})
+                  </Button>
+                ))}
                 <Button
-                  key={group.label}
                   variant="outline"
                   size="sm"
-                  className="h-8 text-xs"
-                  onClick={() => warmMutation.mutate({ symbols: group.symbols })}
+                  className="h-8 text-xs border-orange-500/30 text-orange-400 hover:bg-orange-500/10"
+                  onClick={() => warmMutation.mutate({ symbols: STOCK_POOL.map(s => s.symbol) })}
                   disabled={warmMutation.isPending || warming?.isWarming}
                 >
-                  {group.label} ({group.symbols.length})
+                  全部股票 ({STOCK_POOL.length})
                 </Button>
-              ))}
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 text-xs border-orange-500/30 text-orange-400 hover:bg-orange-500/10"
-                onClick={() => warmMutation.mutate({ symbols: STOCK_POOL.map(s => s.symbol) })}
-                disabled={warmMutation.isPending || warming?.isWarming}
-              >
-                全部股票 ({STOCK_POOL.length})
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              预热后的数据将缓存到数据库，回测时无需重新请求 API，速度提升 10-100 倍。
-            </p>
-          </CardContent>
-        </Card>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                预热后的数据将缓存到数据库，回测时无需重新请求 API，速度提升 10-100 倍。
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* Stock Pool Filter */}
+          <Card className="bg-card border-border">
+            <CardHeader className="pb-3 cursor-pointer" onClick={() => setShowPoolFilter(!showPoolFilter)}>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <Filter className="h-4 w-4" /> 按板块/市值筛选预热
+                </CardTitle>
+                {showPoolFilter ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </div>
+            </CardHeader>
+            {showPoolFilter && (
+              <CardContent className="space-y-4 border-t border-border pt-4">
+                {/* Sectors */}
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium">行业板块</Label>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {Object.entries(SECTOR_LABELS).map(([key, label]) => (
+                      <div key={key} className="flex items-center gap-2">
+                        <Checkbox
+                          id={`sector-${key}`}
+                          checked={selectedSectors.includes(key as StockSector)}
+                          onCheckedChange={(checked) => {
+                            const newSectors = checked
+                              ? [...selectedSectors, key as StockSector]
+                              : selectedSectors.filter(s => s !== key);
+                            setSelectedSectors(newSectors);
+                            updateFiltered(newSectors, selectedCapTiers);
+                          }}
+                        />
+                        <label htmlFor={`sector-${key}`} className="text-xs cursor-pointer">{label}</label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Market Cap Tiers */}
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium">市值区间</Label>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {Object.entries(MARKET_CAP_TIER_LABELS).map(([key, label]) => (
+                      <div key={key} className="flex items-center gap-2">
+                        <Checkbox
+                          id={`cap-${key}`}
+                          checked={selectedCapTiers.includes(key as MarketCapTier)}
+                          onCheckedChange={(checked) => {
+                            const newTiers = checked
+                              ? [...selectedCapTiers, key as MarketCapTier]
+                              : selectedCapTiers.filter(t => t !== key);
+                            setSelectedCapTiers(newTiers);
+                            updateFiltered(selectedSectors, newTiers);
+                          }}
+                        />
+                        <label htmlFor={`cap-${key}`} className="text-xs cursor-pointer">{label}</label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Selected tags */}
+                {(selectedSectors.length > 0 || selectedCapTiers.length > 0) && (
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">已选条件</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedSectors.map(s => (
+                        <Badge key={s} variant="secondary" className="text-xs gap-1">
+                          {SECTOR_LABELS[s]}
+                          <button onClick={() => {
+                            const newSectors = selectedSectors.filter(x => x !== s);
+                            setSelectedSectors(newSectors);
+                            updateFiltered(newSectors, selectedCapTiers);
+                          }} className="ml-1 hover:text-destructive"><X className="h-3 w-3" /></button>
+                        </Badge>
+                      ))}
+                      {selectedCapTiers.map(t => (
+                        <Badge key={t} variant="secondary" className="text-xs gap-1">
+                          {MARKET_CAP_TIER_LABELS[t]}
+                          <button onClick={() => {
+                            const newTiers = selectedCapTiers.filter(x => x !== t);
+                            setSelectedCapTiers(newTiers);
+                            updateFiltered(selectedSectors, newTiers);
+                          }} className="ml-1 hover:text-destructive"><X className="h-3 w-3" /></button>
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Action buttons */}
+                <div className="flex gap-2 pt-2">
+                  <Button
+                    size="sm"
+                    className="flex-1 text-xs h-8"
+                    onClick={() => warmMutation.mutate({ symbols: filteredSymbols })}
+                    disabled={warmMutation.isPending || warming?.isWarming || filteredSymbols.length === 0}
+                  >
+                    预热 {filteredSymbols.length} 只股票
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs h-8"
+                    onClick={() => {
+                      setSelectedSectors([]);
+                      setSelectedCapTiers([]);
+                      setFilteredSymbols(STOCK_POOL.map(s => s.symbol));
+                    }}
+                  >
+                    清空
+                  </Button>
+                </div>
+              </CardContent>
+            )}
+          </Card>
+        </>
       )}
 
       {/* Cache Entries */}
