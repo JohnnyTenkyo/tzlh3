@@ -136,3 +136,14 @@
 - [x] env.ts：添加 alpacaEndpoint 字段（默认 https://data.alpaca.markets/v2）
 - [x] marketData.ts：更新 fetchAlpacaCandles 和 fetchAlpacaBatchCandles 使用 ENV.alpacaEndpoint
 - [x] Alpaca API 密钥和 Endpoint 已更新（webdev_request_secrets）
+
+## 第十轮：缓存预热进度持久化 + 统计面板 + 定时任务 + 回测超时修复
+- [x] drizzle/schema.ts：添加 warmingProgress 表（跟踪预热进度）
+- [x] drizzle/schema.ts：添加 warmingStats 表（统计数据）
+- [x] drizzle/schema.ts：添加 scheduledWarmingTasks 表（定时任务）
+- [x] server/db.ts：添加 warmingProgress/warmingStats/scheduledTasks 的 CRUD 函数（所有函数实现）
+- [x] server/routers.ts：添加 cache 路由的 6 个新接口（resume/stats/createScheduledTask/listScheduledTasks/updateScheduledTask/deleteScheduledTask）
+- [x] server/cacheScheduler.ts：后台定时任务执行引擎（cron 表达式解析、任务执行、进度记录）
+- [x] server/backtestEngine.ts：添加全局 5 分钟超时、详细日志、单股票处理超时检查
+- [ ] CachePage.tsx：前端 UI 更新（进度条、统计卡片、定时任务管理面板）
+- [ ] server/_core：初始化定时任务调度器（在服务器启动时调用）

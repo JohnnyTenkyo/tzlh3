@@ -2,6 +2,7 @@ import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getDb, registerUser, verifyPassword, changePassword } from "./db";
 import { backtestSessions, backtestTrades, dataSourceHealth } from "../drizzle/schema";
@@ -436,6 +437,74 @@ export const appRouter = router({
       return { message: `开始缓存 ${symbols.length} 只股票的日线数据（自动重试失败项）`, total: symbols.length };
     }),
     warmingStatus: publicProcedure.query(() => getCacheWarmingStatus()),
+    resume: protectedProcedure.query(async ({ ctx }) => {
+      const { getIncompleteWarmingProgress } = await import("./db");
+      const progress = await getIncompleteWarmingProgress(ctx.user.id);
+      return progress;
+    }),
+    stats: protectedProcedure.query(async ({ ctx }) => {
+      const { getWarmingStats } = await import("./db");
+      const stats = await getWarmingStats(ctx.user.id);
+      return stats;
+    }),
+    createScheduledTask: protectedProcedure
+      .input(z.object({
+        name: z.string(),
+        description: z.string().optional(),
+        sectors: z.array(z.string()).default([]),
+        marketCapTiers: z.array(z.string()).default([]),
+        customSymbols: z.array(z.string()).optional(),
+        cronExpression: z.string(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { createScheduledTask } = await import("./db");
+        await createScheduledTask(
+          ctx.user.id,
+          input.name,
+          input.sectors,
+          input.marketCapTiers,
+          input.cronExpression,
+          input.description,
+          input.customSymbols
+        );
+        return { success: true };
+      }),
+    listScheduledTasks: protectedProcedure.query(async ({ ctx }) => {
+      const { getScheduledTasks } = await import("./db");
+      const tasks = await getScheduledTasks(ctx.user.id);
+      return tasks;
+    }),
+    updateScheduledTask: protectedProcedure
+      .input(z.object({
+        taskId: z.number(),
+        name: z.string().optional(),
+        description: z.string().optional(),
+        sectors: z.array(z.string()).optional(),
+        marketCapTiers: z.array(z.string()).optional(),
+        customSymbols: z.array(z.string()).optional(),
+        cronExpression: z.string().optional(),
+        isEnabled: z.boolean().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { updateScheduledTask, getScheduledTaskById } = await import("./db");
+        const task = await getScheduledTaskById(input.taskId);
+        if (!task || task.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        await updateScheduledTask(input.taskId, input);
+        return { success: true };
+      }),
+    deleteScheduledTask: protectedProcedure
+      .input(z.object({ taskId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const { deleteScheduledTask, getScheduledTaskById } = await import("./db");
+        const task = await getScheduledTaskById(input.taskId);
+        if (!task || task.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        await deleteScheduledTask(input.taskId);
+        return { success: true };
+      }),
   }),
 
   health: router({

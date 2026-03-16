@@ -10,6 +10,7 @@ import {
   json,
   index,
   uniqueIndex,
+  boolean,
 } from "drizzle-orm/mysql-core";
 
 // ============================================================
@@ -138,3 +139,71 @@ export const dataSourceHealth = mysqlTable("data_source_health", {
 }, (table) => [
   uniqueIndex("idx_dsh_source_tf").on(table.source, table.timeframe),
 ]);
+
+// ============================================================
+// Warming Progress (缓存预热进度跟踪)
+// ============================================================
+export const warmingProgress = mysqlTable("warming_progress", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  taskId: varchar("taskId", { length: 64 }).notNull().unique(),
+  symbol: varchar("symbol", { length: 20 }).notNull(),
+  status: mysqlEnum("status", ["pending", "success", "failed"]).default("pending").notNull(),
+  dataSource: varchar("dataSource", { length: 30 }),
+  errorMessage: text("errorMessage"),
+  duration: int("duration"), // milliseconds
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  completedAt: timestamp("completedAt"),
+}, (table) => [
+  index("idx_task_id").on(table.taskId),
+  index("idx_user_id").on(table.userId),
+  index("idx_status").on(table.status),
+]);
+
+export type WarmingProgress = typeof warmingProgress.$inferSelect;
+export type InsertWarmingProgress = typeof warmingProgress.$inferInsert;
+
+// ============================================================
+// Warming Stats (缓存预热统计数据)
+// ============================================================
+export const warmingStats = mysqlTable("warming_stats", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  dataSource: varchar("dataSource", { length: 30 }).notNull(),
+  successCount: int("successCount").default(0),
+  failCount: int("failCount").default(0),
+  totalDuration: bigint("totalDuration", { mode: "number" }).default(0), // total milliseconds
+  averageDuration: decimal("averageDuration", { precision: 10, scale: 2 }).default("0"), // milliseconds
+  lastUpdated: timestamp("lastUpdated").defaultNow().onUpdateNow(),
+}, (table) => [
+  uniqueIndex("idx_user_source").on(table.userId, table.dataSource),
+]);
+
+export type WarmingStats = typeof warmingStats.$inferSelect;
+export type InsertWarmingStats = typeof warmingStats.$inferInsert;
+
+// ============================================================
+// Scheduled Warming Tasks (定时预热任务)
+// ============================================================
+export const scheduledWarmingTasks = mysqlTable("scheduled_warming_tasks", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  sectors: json("sectors").$type<string[]>(), // selected sectors
+  marketCapTiers: json("marketCapTiers").$type<string[]>(), // selected market cap tiers
+  customSymbols: json("customSymbols").$type<string[]>(), // custom symbol list
+  cronExpression: varchar("cronExpression", { length: 100 }).notNull(), // e.g., "0 2 * * *" for 2 AM daily
+  isEnabled: boolean("isEnabled").default(true),
+  lastExecutedAt: timestamp("lastExecutedAt"),
+  nextExecutedAt: timestamp("nextExecutedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow(),
+}, (table) => [
+  index("idx_user_id").on(table.userId),
+  index("idx_enabled").on(table.isEnabled),
+  index("idx_next_executed").on(table.nextExecutedAt),
+]);
+
+export type ScheduledWarmingTask = typeof scheduledWarmingTasks.$inferSelect;
+export type InsertScheduledWarmingTask = typeof scheduledWarmingTasks.$inferInsert;

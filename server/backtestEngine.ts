@@ -213,10 +213,19 @@ function makeBuyTrade(symbol: string, quantity: number, price: number, reason: s
 // ============================================================
 export async function runBacktest(config: BacktestConfig): Promise<BacktestResult> {
   const db = await getDb();
+  const backtestStartTime = Date.now();
+  const BACKTEST_TIMEOUT = 5 * 60 * 1000; // 5 minutes total timeout
+  
   if (db) {
     await db.update(backtestSessions).set({ status: "running", progress: 0, progressMessage: "初始化回测..." })
       .where(eq(backtestSessions.id, config.sessionId));
   }
+  
+  const checkTimeout = () => {
+    if (Date.now() - backtestStartTime > BACKTEST_TIMEOUT) {
+      throw new Error(`回测超时（超过 ${BACKTEST_TIMEOUT / 1000} 秒）`);
+    }
+  };
 
   const params = { ...STRATEGY_DEFAULTS[config.strategy], ...(config.strategyParams || {}) };
   const allTrades: TradeRecord[] = [];
@@ -253,6 +262,7 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
     let processedSymbols = 0;
 
     for (const symbol of config.symbols) {
+      checkTimeout();
       processedSymbols++;
       const progress = Math.round((processedSymbols / totalSymbols) * 100);
       if (db && processedSymbols % 5 === 0) {
@@ -263,11 +273,16 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
 
       try {
         // 30s timeout per symbol to prevent hanging on slow data sources
+        const symbolStartTime = Date.now();
         const dailyCandles = await getCandlesWithCache(symbol, "1d", config.startDate, config.endDate);
+        const fetchDuration = Date.now() - symbolStartTime;
+        
         if (dailyCandles.length < 100) {
           console.log(`[Backtest] Skipping ${symbol}: only ${dailyCandles.length} candles (need 100+)`);
           continue;
         }
+        
+        console.log(`[Backtest] ${symbol}: fetched ${dailyCandles.length} candles in ${fetchDuration}ms`);
 
         const symbolTrades = runStrategyOnCandles(symbol, dailyCandles, config.strategy, capital, config.maxPositionPct, positions, params);
 

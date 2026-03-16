@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { Activity, Database, RefreshCw, Zap } from "lucide-react";
+import { Activity, Database, RefreshCw, Zap, Clock, Play, Pause, Trash2, Plus } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { STOCK_POOL, SECTOR_LABELS, MARKET_CAP_TIER_LABELS, filterStocks, type StockSector, type MarketCapTier } from "@shared/stockPool";
 import { useState } from "react";
