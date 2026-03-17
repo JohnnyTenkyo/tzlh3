@@ -147,3 +147,14 @@
 - [x] server/backtestEngine.ts：添加全局 5 分钟超时、详细日志、单股票处理超时检查
 - [ ] CachePage.tsx：前端 UI 更新（进度条、统计卡片、定时任务管理面板）
 - [ ] server/_core：初始化定时任务调度器（在服务器启动时调用）
+
+## 第十一轮：回测时间选择修复 + 快速选择按钮
+- [ ] BacktestPage.tsx：修复日期选择无法修改的问题
+- [ ] BacktestPage.tsx：添加自定义日期范围输入（开始日期、结束日期）
+- [ ] BacktestPage.tsx：添加快速选择按钮（最近一年、最近半年、最近三个月）
+
+
+## 第十一轮：回测时间选择修复 + 快速选择按钮
+- [x] BacktestPage.tsx：修复日期选择无法修改的问题（endDate 从 readOnly 改为可编辑）
+- [x] BacktestPage.tsx：添加自定义日期范围输入（开始日期、结束日期）
+- [x] BacktestPage.tsx：添加快速选择按钮（最近一年、最近半年、最近三个月，带 toast 提示）

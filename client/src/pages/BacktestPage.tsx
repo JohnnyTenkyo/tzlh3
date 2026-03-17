@@ -728,7 +728,7 @@ export default function BacktestPage() {
   const [strategy, setStrategy] = useState<StrategyKey>("standard");
   const [selectedSymbols, setSelectedSymbols] = useState<string[]>(STOCK_POOL.map(s => s.symbol));
   const [startDate, setStartDate] = useState(() => { const d = new Date(); d.setFullYear(d.getFullYear() - 2); return d.toISOString().split("T")[0]; });
-  const [endDate] = useState(new Date().toISOString().split("T")[0]);
+  const [endDate, setEndDate] = useState(new Date().toISOString().split("T")[0]);
   const [initialCapital, setInitialCapital] = useState(100000);
   const [maxPositionPct, setMaxPositionPct] = useState(10);
 
@@ -955,22 +955,61 @@ export default function BacktestPage() {
               </Card>
 
               {/* Date & Capital */}
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">开始日期</Label>
+                    <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="h-8 text-sm" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">结束日期</Label>
+                    <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="h-8 text-sm" />
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <Button size="sm" variant="outline" className="text-xs h-7"
+                    onClick={() => {
+                      const end = new Date();
+                      const start = new Date();
+                      start.setFullYear(start.getFullYear() - 1);
+                      setStartDate(start.toISOString().split("T")[0]);
+                      setEndDate(end.toISOString().split("T")[0]);
+                      toast.success("已设置为最近一年");
+                    }}>
+                    最近一年
+                  </Button>
+                  <Button size="sm" variant="outline" className="text-xs h-7"
+                    onClick={() => {
+                      const end = new Date();
+                      const start = new Date();
+                      start.setMonth(start.getMonth() - 6);
+                      setStartDate(start.toISOString().split("T")[0]);
+                      setEndDate(end.toISOString().split("T")[0]);
+                      toast.success("已设置为最近半年");
+                    }}>
+                    最近半年
+                  </Button>
+                  <Button size="sm" variant="outline" className="text-xs h-7"
+                    onClick={() => {
+                      const end = new Date();
+                      const start = new Date();
+                      start.setMonth(start.getMonth() - 3);
+                      setStartDate(start.toISOString().split("T")[0]);
+                      setEndDate(end.toISOString().split("T")[0]);
+                      toast.success("已设置为最近三个月");
+                    }}>
+                    最近三个月
+                  </Button>
+                </div>
+              </div>
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">开始日期</Label>
-                  <Input type="date" value={startDate} onChange={e => { }} className="h-8 text-sm" readOnly />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">结束日期</Label>
-                  <Input type="date" value={endDate} className="h-8 text-sm" readOnly />
-                </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs">初始资金 ($)</Label>
                   <Input type="number" value={initialCapital} onChange={e => setInitialCapital(Number(e.target.value))} className="h-8 text-sm" />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs">最大仓位 (%)</Label>
-                  <Input type="number" min={1} max={100} value={maxPositionPct} onChange={e => setMaxPositionPct(Number(e.target.value))} className="h-8 text-sm" />
+                  <Label className="text-xs">最大仓位比例 (%)</Label>
+                  <Input type="number" value={maxPositionPct} onChange={e => setMaxPositionPct(Number(e.target.value))} className="h-8 text-sm" />
                 </div>
               </div>
 
