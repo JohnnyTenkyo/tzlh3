@@ -86,7 +86,7 @@ export async function getCandlesFromCache(
         gte(historicalCandleCache.date, startDate),
         lte(historicalCandleCache.date, endDate)
       )
-    ).orderBy(historicalCandleCache.date);
+    ).orderBy(historicalCandleCache.date).limit(10000); // Limit to prevent loading too much data
     if (candles.length === 0) return null;
     return candles.map(c => ({
       time: new Date(c.date).getTime(),

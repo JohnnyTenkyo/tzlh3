@@ -158,3 +158,16 @@
 - [x] BacktestPage.tsx：修复日期选择无法修改的问题（endDate 从 readOnly 改为可编辑）
 - [x] BacktestPage.tsx：添加自定义日期范围输入（开始日期、结束日期）
 - [x] BacktestPage.tsx：添加快速选择按钮（最近一年、最近半年、最近三个月，带 toast 提示）
+
+
+
+## 第十二轮：微盘股缓存修复 + 交易手续费 + 实时监控面板 + AI 配置管理
+- [x] 排查并修复微盘股缓存卡住问题（getCandlesFromCache 添加 LIMIT 10000）
+- [x] drizzle/schema.ts：添加 aiConfigs 表、backtestSessions 和 backtestTrades 添加手续费字段
+- [x] server/db.ts：添加 AI 配置 CRUD 函数
+- [x] server/routers.ts：添加 ai 路由（getConfigs、createConfig、updateConfig、deleteConfig、setDefault）
+- [x] server/backtestEngine.ts：添加手续费字段到 TradeRecord 接口
+- [x] BacktestDetailPage.tsx：交易日志表格添加佣金、平台费列
+- [x] 创建 AIConfigPanel 组件（添加、编辑、删除、设置默认 AI 配置）
+- [x] BacktestPage.tsx：添加 AI 配置 Tab，集成 AIConfigPanel 组件
+- [ ] 实时回测监控面板：WebSocket 推送交易日志（可先使用 polling 替代）

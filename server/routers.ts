@@ -507,6 +507,72 @@ export const appRouter = router({
       }),
   }),
 
+
+  ai: router({
+    getConfigs: protectedProcedure.query(async ({ ctx }) => {
+      const { getAIConfigs } = await import("./db");
+      return getAIConfigs(ctx.user.id);
+    }),
+    createConfig: protectedProcedure
+      .input(z.object({
+        provider: z.string(),
+        apiEndpoint: z.string(),
+        apiKey: z.string(),
+        model: z.string(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { createAIConfig } = await import("./db");
+        await createAIConfig(ctx.user.id, input);
+        return { success: true };
+      }),
+    updateConfig: protectedProcedure
+      .input(z.object({
+        configId: z.number(),
+        apiEndpoint: z.string().optional(),
+        apiKey: z.string().optional(),
+        model: z.string().optional(),
+        isActive: z.boolean().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { getAIConfigById, updateAIConfig } = await import("./db");
+        const config = await getAIConfigById(input.configId);
+        if (!config || config.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        await updateAIConfig(input.configId, {
+          apiEndpoint: input.apiEndpoint,
+          apiKey: input.apiKey,
+          model: input.model,
+          isActive: input.isActive,
+        });
+        return { success: true };
+      }),
+    deleteConfig: protectedProcedure
+      .input(z.object({ configId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const { getAIConfigById, deleteAIConfig } = await import("./db");
+        const config = await getAIConfigById(input.configId);
+        if (!config || config.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        await deleteAIConfig(input.configId);
+        return { success: true };
+      }),
+    setDefault: protectedProcedure
+      .input(z.object({
+        provider: z.string(),
+        configId: z.number(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { getAIConfigById, setDefaultAIConfig } = await import("./db");
+        const config = await getAIConfigById(input.configId);
+        if (!config || config.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        await setDefaultAIConfig(ctx.user.id, input.provider, input.configId);
+        return { success: true };
+      }),
+  }),
   health: router({
     sources: publicProcedure.query(async () => {
       const db = await getDb();

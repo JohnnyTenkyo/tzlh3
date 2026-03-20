@@ -370,3 +370,121 @@ export async function getEnabledScheduledTasks() {
   return db.select().from(scheduledWarmingTasks)
     .where(eq(scheduledWarmingTasks.isEnabled, true));
 }
+
+
+// ============================================================
+// AI Configurations
+// ============================================================
+export async function getAIConfigs(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const { aiConfigs } = await import("../drizzle/schema");
+  const { eq } = await import("drizzle-orm");
+  return db.select().from(aiConfigs).where(eq(aiConfigs.userId, userId));
+}
+
+export async function getAIConfigById(configId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  
+  const { aiConfigs } = await import("../drizzle/schema");
+  const { eq } = await import("drizzle-orm");
+  const result = await db.select().from(aiConfigs).where(eq(aiConfigs.id, configId)).limit(1);
+  return result.length > 0 ? result[0] : null;
+}
+
+export async function getActiveAIConfig(userId: number, provider: string) {
+  const db = await getDb();
+  if (!db) return null;
+  
+  const { aiConfigs } = await import("../drizzle/schema");
+  const { eq, and } = await import("drizzle-orm");
+  const result = await db.select().from(aiConfigs).where(
+    and(
+      eq(aiConfigs.userId, userId),
+      eq(aiConfigs.provider, provider),
+      eq(aiConfigs.isActive, true)
+    )
+  ).limit(1);
+  return result.length > 0 ? result[0] : null;
+}
+
+export async function createAIConfig(userId: number, data: {
+  provider: string;
+  apiEndpoint: string;
+  apiKey: string;
+  model: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const { aiConfigs } = await import("../drizzle/schema");
+  const result = await db.insert(aiConfigs).values({
+    userId,
+    provider: data.provider,
+    apiEndpoint: data.apiEndpoint,
+    apiKey: data.apiKey,
+    model: data.model,
+    isActive: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  
+  return result;
+}
+
+export async function updateAIConfig(configId: number, data: {
+  apiEndpoint?: string;
+  apiKey?: string;
+  model?: string;
+  isActive?: boolean;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const { aiConfigs } = await import("../drizzle/schema");
+  const { eq } = await import("drizzle-orm");
+  
+  const updateData: Record<string, any> = { updatedAt: new Date() };
+  
+  if (data.apiEndpoint !== undefined) updateData.apiEndpoint = data.apiEndpoint;
+  if (data.apiKey !== undefined) updateData.apiKey = data.apiKey;
+  if (data.model !== undefined) updateData.model = data.model;
+  if (data.isActive !== undefined) updateData.isActive = data.isActive;
+  
+  await db.update(aiConfigs)
+    .set(updateData)
+    .where(eq(aiConfigs.id, configId));
+}
+
+export async function deleteAIConfig(configId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const { aiConfigs } = await import("../drizzle/schema");
+  const { eq } = await import("drizzle-orm");
+  
+  await db.delete(aiConfigs).where(eq(aiConfigs.id, configId));
+}
+
+export async function setDefaultAIConfig(userId: number, provider: string, configId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const { aiConfigs } = await import("../drizzle/schema");
+  const { eq, and } = await import("drizzle-orm");
+  
+  // Deactivate all other configs for this provider
+  await db.update(aiConfigs)
+    .set({ isActive: false, updatedAt: new Date() })
+    .where(and(
+      eq(aiConfigs.userId, userId),
+      eq(aiConfigs.provider, provider)
+    ));
+  
+  // Activate the selected config
+  await db.update(aiConfigs)
+    .set({ isActive: true, updatedAt: new Date() })
+    .where(eq(aiConfigs.id, configId));
+}

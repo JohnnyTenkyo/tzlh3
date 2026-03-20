@@ -129,6 +129,8 @@ interface TradeRecord {
   price: number;
   totalAmount: number;
   fee: number;
+  commissionFee?: number;
+  platformFee?: number;
   reason: string;
   signalType: string;
   tradeTime: number;
@@ -195,6 +197,7 @@ function makeSellTrade(pos: Position, candle: Candle, reason: string, signalType
   return {
     symbol: pos.symbol, side: "sell", quantity: pos.quantity, price: candle.close,
     totalAmount: pos.quantity * candle.close, fee: fees.totalFee,
+    commissionFee: fees.commission, platformFee: fees.platformFee,
     reason, signalType, tradeTime: candle.time, pnl, pnlPct,
   };
 }
@@ -204,6 +207,7 @@ function makeBuyTrade(symbol: string, quantity: number, price: number, reason: s
   return {
     symbol, side: "buy", quantity, price,
     totalAmount: quantity * price, fee: fees.totalFee,
+    commissionFee: fees.commission, platformFee: fees.platformFee,
     reason, signalType, tradeTime: time, pnl: 0, pnlPct: 0,
   };
 }

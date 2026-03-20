@@ -18,6 +18,7 @@ import {
   Download, Cpu, SlidersHorizontal, Info, X, Settings2
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { AIConfigPanel } from "@/components/AIConfigPanel";
 import {
   STOCK_POOL, SECTOR_LABELS, MARKET_CAP_TIER_LABELS, filterStocks, getMarketCapTier,
   type StockSector, type MarketCapTier
@@ -867,11 +868,12 @@ export default function BacktestPage() {
         {/* ── Left: Config (2/3 width) ── */}
         <div className="lg:col-span-2">
           <Tabs value={activeConfigTab} onValueChange={setActiveConfigTab}>
-            <TabsList className="grid grid-cols-3 w-full">
+            <TabsList className="grid grid-cols-4 w-full">
               <TabsTrigger value="config">基础配置</TabsTrigger>
               <TabsTrigger value="params">
                 <SlidersHorizontal className="w-3 h-3 mr-1" />参数调优
               </TabsTrigger>
+              <TabsTrigger value="ai">AI 配置</TabsTrigger>
               <TabsTrigger value="history">历史记录</TabsTrigger>
             </TabsList>
 
@@ -1086,7 +1088,16 @@ export default function BacktestPage() {
               </div>
             </TabsContent>
 
-            {/* ── Tab 3: History ── */}
+            {/* ── Tab 3: AI Config ── */}
+            <TabsContent value="ai" className="mt-4">
+              <Card>
+                <CardContent className="pt-4">
+                  <AIConfigPanel />
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* ── Tab 4: History ── */}
             <TabsContent value="history" className="mt-4">
               <Tabs defaultValue="list">
                 <TabsList className="grid grid-cols-2 w-full">

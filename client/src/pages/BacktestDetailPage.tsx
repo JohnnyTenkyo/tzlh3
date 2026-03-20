@@ -357,6 +357,8 @@ export default function BacktestDetailPage() {
                   <th className="text-right py-2 pr-3">数量</th>
                   <th className="text-right py-2 pr-3">价格</th>
                   <th className="text-right py-2 pr-3">金额</th>
+                  <th className="text-right py-2 pr-3">佣金</th>
+                  <th className="text-right py-2 pr-3">平台费</th>
                   <th className="text-right py-2 pr-3">盈亏</th>
                   <th className="text-right py-2">盈亏%</th>
                 </tr>
@@ -407,6 +409,12 @@ export default function BacktestDetailPage() {
                       <td className="py-1.5 pr-3 text-right">{Number(trade.quantity).toFixed(0)}</td>
                       <td className="py-1.5 pr-3 text-right">${Number(trade.price).toFixed(2)}</td>
                       <td className="py-1.5 pr-3 text-right">${Number(trade.totalAmount).toFixed(0)}</td>
+                      <td className="py-1.5 pr-3 text-right text-orange-400">
+                        {(trade as any).commissionFee ? `$${Number((trade as any).commissionFee).toFixed(2)}` : "-"}
+                      </td>
+                      <td className="py-1.5 pr-3 text-right text-orange-400">
+                        {(trade as any).platformFee ? `$${Number((trade as any).platformFee).toFixed(2)}` : "-"}
+                      </td>
                       <td className={`py-1.5 pr-3 text-right ${pnl >= 0 ? "text-gain" : "text-loss"}`}>
                         {pnl !== 0 ? `${pnl >= 0 ? "+" : ""}$${pnl.toFixed(0)}` : "-"}
                       </td>

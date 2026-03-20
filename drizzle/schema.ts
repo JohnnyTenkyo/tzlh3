@@ -57,6 +57,8 @@ export const backtestSessions = mysqlTable("backtest_sessions", {
   winningTrades: int("winningTrades"),
   losingTrades: int("losingTrades"),
   benchmarkReturn: decimal("benchmarkReturn", { precision: 10, scale: 4 }),
+  totalCommissionFee: decimal("totalCommissionFee", { precision: 15, scale: 2 }).default("0"),
+  totalPlatformFee: decimal("totalPlatformFee", { precision: 15, scale: 2 }).default("0"),
   progress: int("progress").default(0),
   progressMessage: text("progressMessage"),
   resultSummary: json("resultSummary"),
@@ -79,6 +81,8 @@ export const backtestTrades = mysqlTable("backtest_trades", {
   price: decimal("price", { precision: 15, scale: 4 }).notNull(),
   totalAmount: decimal("totalAmount", { precision: 15, scale: 2 }).notNull(),
   fee: decimal("fee", { precision: 10, scale: 4 }).default("0"),
+  commissionFee: decimal("commissionFee", { precision: 15, scale: 2 }).default("0"),
+  platformFee: decimal("platformFee", { precision: 15, scale: 2 }).default("0"),
   reason: text("reason"),
   signalType: varchar("signalType", { length: 50 }),
   tradeTime: bigint("tradeTime", { mode: "number" }).notNull(),
@@ -207,3 +211,23 @@ export const scheduledWarmingTasks = mysqlTable("scheduled_warming_tasks", {
 
 export type ScheduledWarmingTask = typeof scheduledWarmingTasks.$inferSelect;
 export type InsertScheduledWarmingTask = typeof scheduledWarmingTasks.$inferInsert;
+
+// ============================================================
+// AI Configurations (用户级别 AI 配置)
+// ============================================================
+export const aiConfigs = mysqlTable("ai_configs", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  provider: varchar("provider", { length: 50 }).notNull(), // "gemini", "openai", "custom", etc.
+  apiEndpoint: varchar("apiEndpoint", { length: 500 }).notNull(), // API base URL
+  apiKey: varchar("apiKey", { length: 500 }).notNull(), // encrypted API key
+  model: varchar("model", { length: 100 }).notNull(), // model name (e.g., "gpt-4", "gemini-pro")
+  isActive: boolean("isActive").default(true),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow(),
+}, (table) => [
+  uniqueIndex("idx_user_provider").on(table.userId, table.provider),
+  index("idx_user_active").on(table.userId, table.isActive),
+]);
+export type AIConfig = typeof aiConfigs.$inferSelect;
+export type InsertAIConfig = typeof aiConfigs.$inferInsert;
