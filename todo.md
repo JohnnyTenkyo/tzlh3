@@ -171,3 +171,14 @@
 - [x] 创建 AIConfigPanel 组件（添加、编辑、删除、设置默认 AI 配置）
 - [x] BacktestPage.tsx：添加 AI 配置 Tab，集成 AIConfigPanel 组件
 - [ ] 实时回测监控面板：WebSocket 推送交易日志（可先使用 polling 替代）
+
+
+## 第十三轮：手续费完整集成 + 实时监控面板 + AI 自动切换
+- [x] server/backtestEngine.ts：并发加载数据（10并发）+ 优化平仓逻辑（使用已加载数据）
+- [x] server/backtestEngine.ts：实现完整的手续费计算逻辑（佣金 + 平台费）
+- [x] server/backtestEngine.ts：保存交易手续费到数据库（commissionFee + platformFee）
+- [x] BacktestDetailPage.tsx：实时 polling 查询交易日志，显示实时回测进度
+- [x] BacktestDetailPage.tsx：添加进度条、当前处理股票名称、预计完成时间
+- [x] geminiStrategy.ts：实现 AI 自动切换逻辑（主 AI 失败时切换到备用 AI）
+- [x] server/_core/index.ts：在服务器启动时初始化缓存调度器
+- [x] server/tigerTradeFees.test.ts：添加手续费计算测试（全部测试通过）

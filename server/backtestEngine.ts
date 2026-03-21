@@ -263,31 +263,65 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
     } catch { /* ignore */ }
 
     const totalSymbols = config.symbols.length;
+    
+    // Phase 1: Concurrently fetch all candles (with 10 parallel requests max)
+    console.log(`[Backtest] Starting concurrent data fetch for ${totalSymbols} symbols...`);
+    const CONCURRENT_LIMIT = 10;
+    const candleMap = new Map<string, Candle[]>();
+    const fetchErrors = new Map<string, string>();
+    
+    for (let i = 0; i < totalSymbols; i += CONCURRENT_LIMIT) {
+      checkTimeout();
+      const batch = config.symbols.slice(i, i + CONCURRENT_LIMIT);
+      const progress = Math.round((i / totalSymbols) * 50); // First 50% for data fetch
+      if (db) {
+        await db.update(backtestSessions).set({
+          progress, progressMessage: `加载数据 (${i}/${totalSymbols})...`,
+        }).where(eq(backtestSessions.id, config.sessionId));
+      }
+      
+      const fetchPromises = batch.map(async (symbol) => {
+        try {
+          const startTime = Date.now();
+          const candles = await getCandlesWithCache(symbol, "1d", config.startDate, config.endDate);
+          const duration = Date.now() - startTime;
+          console.log(`[Backtest] ${symbol}: fetched ${candles.length} candles in ${duration}ms`);
+          
+          if (candles.length >= 100) {
+            candleMap.set(symbol, candles);
+          } else {
+            fetchErrors.set(symbol, `only ${candles.length} candles`);
+          }
+        } catch (err) {
+          fetchErrors.set(symbol, err instanceof Error ? err.message : String(err));
+          console.error(`[Backtest] Failed to fetch ${symbol}:`, err);
+        }
+      });
+      
+      await Promise.all(fetchPromises);
+    }
+    
+    console.log(`[Backtest] Data fetch complete: ${candleMap.size} symbols loaded, ${fetchErrors.size} failed`);
+    
+    // Phase 2: Process strategies sequentially on loaded data
     let processedSymbols = 0;
-
     for (const symbol of config.symbols) {
       checkTimeout();
       processedSymbols++;
-      const progress = Math.round((processedSymbols / totalSymbols) * 100);
+      const progress = 50 + Math.round((processedSymbols / totalSymbols) * 50); // Second 50% for strategy
       if (db && processedSymbols % 5 === 0) {
         await db.update(backtestSessions).set({
-          progress, progressMessage: `回测 ${symbol} (${processedSymbols}/${totalSymbols})`,
+          progress, progressMessage: `策略回测 ${symbol} (${processedSymbols}/${totalSymbols})`,
         }).where(eq(backtestSessions.id, config.sessionId));
       }
 
-      try {
-        // 30s timeout per symbol to prevent hanging on slow data sources
-        const symbolStartTime = Date.now();
-        const dailyCandles = await getCandlesWithCache(symbol, "1d", config.startDate, config.endDate);
-        const fetchDuration = Date.now() - symbolStartTime;
-        
-        if (dailyCandles.length < 100) {
-          console.log(`[Backtest] Skipping ${symbol}: only ${dailyCandles.length} candles (need 100+)`);
-          continue;
-        }
-        
-        console.log(`[Backtest] ${symbol}: fetched ${dailyCandles.length} candles in ${fetchDuration}ms`);
+      const dailyCandles = candleMap.get(symbol);
+      if (!dailyCandles) {
+        console.log(`[Backtest] Skipping ${symbol}: ${fetchErrors.get(symbol) || 'no data'}`);
+        continue;
+      }
 
+      try {
         const symbolTrades = runStrategyOnCandles(symbol, dailyCandles, config.strategy, capital, config.maxPositionPct, positions, params);
 
         for (const trade of symbolTrades) {
@@ -315,11 +349,11 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
       }
     }
 
-    // Close all remaining positions
+    // Close all remaining positions (use already-loaded candles from candleMap)
     for (const [sym, pos] of Array.from(positions.entries())) {
       try {
-        const candles = await getCandlesWithCache(sym, "1d", config.startDate, config.endDate);
-        if (candles.length > 0) {
+        const candles = candleMap.get(sym);
+        if (candles && candles.length > 0) {
           const trade = makeSellTrade(pos, candles[candles.length - 1], "回测结束平仓", "close_all");
           allTrades.push(trade);
           capital += trade.totalAmount - trade.fee;
@@ -373,6 +407,7 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
             symbol: t.symbol, side: t.side as "buy" | "sell",
             quantity: String(t.quantity), price: String(t.price),
             totalAmount: String(t.totalAmount), fee: String(t.fee),
+            commissionFee: String(t.commissionFee || 0), platformFee: String(t.platformFee || 0),
             reason: t.reason, signalType: t.signalType,
             tradeTime: t.tradeTime,
             pnl: String(t.pnl), pnlPct: String(t.pnlPct),

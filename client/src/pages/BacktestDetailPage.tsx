@@ -3,12 +3,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Download, Cpu, TrendingUp, TrendingDown } from "lucide-react";
+import { ArrowLeft, Download, Cpu, TrendingUp, TrendingDown, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { Progress } from "@/components/ui/progress";
 
 // Merge equity curves from strategy, SPY, QQQ into a unified time series
 function mergeEquityCurves(
@@ -72,9 +73,37 @@ export default function BacktestDetailPage() {
   const params = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const id = parseInt(params.id || "0");
+  const [isPolling, setIsPolling] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [progressMessage, setProgressMessage] = useState("");
 
   const { data, isLoading, error } = trpc.backtest.detail.useQuery({ id }, { enabled: !!id });
+  const { data: progressData } = trpc.backtest.progress.useQuery({ id }, {
+    enabled: !!id && isPolling,
+    refetchInterval: 1000, // Poll every 1 second
+  });
   const utils = trpc.useUtils();
+
+  // Start polling when session is running
+  useEffect(() => {
+    if (data?.session?.status === "running") {
+      setIsPolling(true);
+    } else if (data?.session?.status === "completed" || data?.session?.status === "failed") {
+      setIsPolling(false);
+    }
+  }, [data?.session?.status]);
+
+  // Update progress from polling data
+  useEffect(() => {
+    if (progressData) {
+      setProgress(progressData.progress || 0);
+      setProgressMessage(progressData.progressMessage || "");
+      if (progressData.status === "completed" || progressData.status === "failed") {
+        setIsPolling(false);
+        utils.backtest.detail.invalidate({ id });
+      }
+    }
+  }, [progressData, id, utils]);
 
   const exportMutation = trpc.backtest.exportExcel.useMutation({
     onSuccess: ({ filename, base64 }) => {
@@ -140,6 +169,23 @@ export default function BacktestDetailPage() {
 
   return (
     <div className="space-y-6">
+      {/* Progress Bar (when running) */}
+      {session.status === "running" && (
+        <Card className="border-blue-500/30 bg-blue-500/5">
+          <CardContent className="pt-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <RefreshCw className="h-4 w-4 animate-spin text-blue-400" />
+                <span className="text-sm font-medium">回测进行中...</span>
+              </div>
+              <span className="text-sm text-muted-foreground">{progress}%</span>
+            </div>
+            <Progress value={progress} className="h-2" />
+            <p className="text-xs text-muted-foreground">{progressMessage}</p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
