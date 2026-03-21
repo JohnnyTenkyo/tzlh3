@@ -13,6 +13,7 @@ import StockPoolPage from "./pages/StockPoolPage";
 import CachePage from "./pages/CachePage";
 import HealthPage from "./pages/HealthPage";
 import AuthPage from "./pages/AuthPage";
+import SettingsPage from "./pages/SettingsPage";
 
 function Router() {
   return (
@@ -26,6 +27,7 @@ function Router() {
         <Route path="/cache" component={CachePage} />
         <Route path="/health" component={HealthPage} />
         <Route path="/auth" component={AuthPage} />
+        <Route path="/settings" component={SettingsPage} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>
