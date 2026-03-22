@@ -190,3 +190,14 @@
 - [x] client/src/App.tsx：添加 SettingsPage 导入和 /settings 路由
 - [x] client/src/components/DashboardLayout.tsx：添加设置菜单项到侧边栏
 - [x] 前端测试：验证添加、编辑、删除、设置默认 AI 配置功能正常工作
+
+
+## 第十五轮：股票数据源自定义配置 + AI 配置验证 + 回测 AI 选择
+- [x] drizzle/schema.ts：添加 customDataSources 表（用户自定义数据源配置）
+- [x] server/db.ts：添加数据源 CRUD 函数（create/read/update/delete）
+- [x] server/routers.ts：添加 datasource 路由（getConfigs/createConfig/updateConfig/deleteConfig）
+- [x] server/routers.ts：添加 ai.testConnection mutation（验证 AI 配置是否有效）
+- [x] client/src/components/DataSourcePanel.tsx：创建数据源管理面板组件
+- [x] client/src/pages/SettingsPage.tsx：集成数据源管理面板和 AI 验证功能
+- [x] client/src/pages/BacktestPage.tsx：添加 AI 提供商选择下拉菜单
+- [x] 所有测试通过（14/14）、TypeScript 编译无错误、功能已验证

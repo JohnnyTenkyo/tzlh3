@@ -736,12 +736,16 @@ export default function BacktestPage() {
   // Strategy params with null support
   const [strategyParams, setStrategyParams] = useState<StrategyParamState>({ ...DEFAULT_PARAMS["standard"] });
 
+  // AI Config selection
+  const [selectedAIConfigId, setSelectedAIConfigId] = useState<number | null>(null);
+
   // Multi-strategy compare mode
   const [compareMode, setCompareMode] = useState(false);
   const [compareStrategies, setCompareStrategies] = useState<StrategyKey[]>(["standard", "aggressive"]);
   const [activeConfigTab, setActiveConfigTab] = useState("config");
 
   const { data: strategiesData } = trpc.backtest.strategies.useQuery();
+  const { data: aiConfigs = [] } = trpc.ai.getConfigs.useQuery();
   const { data: historyData, isLoading: historyLoading } = trpc.backtest.list.useQuery(undefined, {
     enabled: isAuthenticated, refetchInterval: 5000,
   });
@@ -1014,6 +1018,25 @@ export default function BacktestPage() {
                   <Input type="number" value={maxPositionPct} onChange={e => setMaxPositionPct(Number(e.target.value))} className="h-8 text-sm" />
                 </div>
               </div>
+
+              {/* AI Config Selection */}
+              {aiConfigs.length > 0 && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">AI 配置（可选）</Label>
+                  <select
+                    value={selectedAIConfigId || ""}
+                    onChange={(e) => setSelectedAIConfigId(e.target.value ? Number(e.target.value) : null)}
+                    className="w-full h-8 px-2 text-sm border border-border rounded-md bg-background text-foreground"
+                  >
+                    <option value="">使用默认 AI 配置</option>
+                    {aiConfigs.map((config: any) => (
+                      <option key={config.id} value={config.id}>
+                        {config.provider} - {config.model}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {/* Submit */}
               <Button className="w-full" onClick={handleSubmit} disabled={isSubmitting || !isAuthenticated}>

@@ -488,3 +488,90 @@ export async function setDefaultAIConfig(userId: number, provider: string, confi
     .set({ isActive: true, updatedAt: new Date() })
     .where(eq(aiConfigs.id, configId));
 }
+
+
+// ============================================================
+// Custom Data Sources
+// ============================================================
+export async function getCustomDataSources(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const { customDataSources } = await import("../drizzle/schema");
+  const { eq } = await import("drizzle-orm");
+  return db.select().from(customDataSources).where(eq(customDataSources.userId, userId));
+}
+
+export async function getCustomDataSourceById(sourceId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  
+  const { customDataSources } = await import("../drizzle/schema");
+  const { eq } = await import("drizzle-orm");
+  const result = await db.select().from(customDataSources).where(eq(customDataSources.id, sourceId)).limit(1);
+  return result.length > 0 ? result[0] : null;
+}
+
+export async function createCustomDataSource(userId: number, data: {
+  name: string;
+  provider: string;
+  apiEndpoint?: string;
+  apiKey?: string;
+  description?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const { customDataSources } = await import("../drizzle/schema");
+  
+  const result = await db.insert(customDataSources).values({
+    userId,
+    name: data.name,
+    provider: data.provider,
+    apiEndpoint: data.apiEndpoint,
+    apiKey: data.apiKey,
+    description: data.description,
+    isActive: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  
+  return result;
+}
+
+export async function updateCustomDataSource(sourceId: number, data: Partial<{
+  name: string;
+  provider: string;
+  apiEndpoint: string;
+  apiKey: string;
+  description: string;
+  isActive: boolean;
+}>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const { customDataSources } = await import("../drizzle/schema");
+  const { eq } = await import("drizzle-orm");
+  
+  const updateData: Record<string, any> = { updatedAt: new Date() };
+  if (data.name !== undefined) updateData.name = data.name;
+  if (data.provider !== undefined) updateData.provider = data.provider;
+  if (data.apiEndpoint !== undefined) updateData.apiEndpoint = data.apiEndpoint;
+  if (data.apiKey !== undefined) updateData.apiKey = data.apiKey;
+  if (data.description !== undefined) updateData.description = data.description;
+  if (data.isActive !== undefined) updateData.isActive = data.isActive;
+  
+  await db.update(customDataSources)
+    .set(updateData)
+    .where(eq(customDataSources.id, sourceId));
+}
+
+export async function deleteCustomDataSource(sourceId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const { customDataSources } = await import("../drizzle/schema");
+  const { eq } = await import("drizzle-orm");
+  
+  await db.delete(customDataSources).where(eq(customDataSources.id, sourceId));
+}

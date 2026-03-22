@@ -231,3 +231,26 @@ export const aiConfigs = mysqlTable("ai_configs", {
 ]);
 export type AIConfig = typeof aiConfigs.$inferSelect;
 export type InsertAIConfig = typeof aiConfigs.$inferInsert;
+
+
+// ============================================================
+// Custom Data Sources (用户自定义数据源配置)
+// ============================================================
+export const customDataSources = mysqlTable("custom_data_sources", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  name: varchar("name", { length: 100 }).notNull(), // e.g., "My Custom Source"
+  provider: varchar("provider", { length: 50 }).notNull(), // e.g., "custom_api", "csv_upload", etc.
+  apiEndpoint: varchar("apiEndpoint", { length: 500 }), // API base URL (if applicable)
+  apiKey: varchar("apiKey", { length: 500 }), // encrypted API key (if applicable)
+  description: text("description"), // user notes
+  isActive: boolean("isActive").default(true),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow(),
+}, (table) => [
+  index("idx_user_id").on(table.userId),
+  index("idx_user_active").on(table.userId, table.isActive),
+]);
+
+export type CustomDataSource = typeof customDataSources.$inferSelect;
+export type InsertCustomDataSource = typeof customDataSources.$inferInsert;

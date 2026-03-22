@@ -572,6 +572,90 @@ export const appRouter = router({
         await setDefaultAIConfig(ctx.user.id, input.provider, input.configId);
         return { success: true };
       }),
+    testConnection: protectedProcedure
+      .input(z.object({
+        provider: z.string(),
+        apiEndpoint: z.string(),
+        apiKey: z.string(),
+        model: z.string(),
+      }))
+      .mutation(async ({ input }) => {
+        try {
+          const response = await fetch(`${input.apiEndpoint}/models`, {
+            method: "GET",
+            headers: {
+              "Authorization": `Bearer ${input.apiKey}`,
+              "Content-Type": "application/json",
+            },
+          });
+          
+          if (!response.ok) {
+            return {
+              success: false,
+              error: `HTTP ${response.status}: ${response.statusText}`,
+            };
+          }
+          
+          return {
+            success: true,
+            message: "连接成功",
+          };
+        } catch (error: any) {
+          return {
+            success: false,
+            error: error?.message || "连接失败",
+          };
+        }
+      }),
+  }),
+  datasource: router({
+    getConfigs: protectedProcedure.query(async ({ ctx }) => {
+      const { getCustomDataSources } = await import("./db");
+      return getCustomDataSources(ctx.user.id);
+    }),
+    createConfig: protectedProcedure
+      .input(z.object({
+        name: z.string(),
+        provider: z.string(),
+        apiEndpoint: z.string().optional(),
+        apiKey: z.string().optional(),
+        description: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { createCustomDataSource } = await import("./db");
+        await createCustomDataSource(ctx.user.id, input);
+        return { success: true };
+      }),
+    updateConfig: protectedProcedure
+      .input(z.object({
+        sourceId: z.number(),
+        name: z.string().optional(),
+        provider: z.string().optional(),
+        apiEndpoint: z.string().optional(),
+        apiKey: z.string().optional(),
+        description: z.string().optional(),
+        isActive: z.boolean().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { getCustomDataSourceById, updateCustomDataSource } = await import("./db");
+        const source = await getCustomDataSourceById(input.sourceId);
+        if (!source || source.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        await updateCustomDataSource(input.sourceId, input);
+        return { success: true };
+      }),
+    deleteConfig: protectedProcedure
+      .input(z.object({ sourceId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const { getCustomDataSourceById, deleteCustomDataSource } = await import("./db");
+        const source = await getCustomDataSourceById(input.sourceId);
+        if (!source || source.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        await deleteCustomDataSource(input.sourceId);
+        return { success: true };
+      }),
   }),
   health: router({
     sources: publicProcedure.query(async () => {
