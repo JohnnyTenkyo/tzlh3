@@ -207,6 +207,7 @@
 - [x] HealthPage.tsx：重写集成 AI 配置和数据源管理功能
 - [x] HealthPage.tsx：AI 服务状态卡片上添加编辑、删除、添加按钮
 - [x] HealthPage.tsx：每个数据源卡片上添加编辑、删除、添加按钮
-- [x] HealthPage.tsx：使用 Dialog 显示编辑表单
-- [x] 浏览器测试：验证添加 AI、添加数据源对话框正常打开
+- [x] HealthPage.tsx：使用 AlertDialog 显示删除确认对话框（替代原生 confirm()）
+- [x] server/routers.ts：修复 datasource.deleteConfig 路由支持删除内置数据源
+- [x] 浏览器测试：验证添加 AI、添加数据源对话框正常打开，删除功能正常工作
 - [x] 所有测试通过（14/14）、TypeScript 编译无错误

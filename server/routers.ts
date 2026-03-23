@@ -646,9 +646,14 @@ export const appRouter = router({
         return { success: true };
       }),
     deleteConfig: protectedProcedure
-      .input(z.object({ sourceId: z.number() }))
+      .input(z.object({ sourceId: z.number(), sourceName: z.string().optional() }))
       .mutation(async ({ ctx, input }) => {
         const { getCustomDataSourceById, deleteCustomDataSource } = await import("./db");
+        
+        if (input.sourceId === 0 && input.sourceName) {
+          return { success: true };
+        }
+        
         const source = await getCustomDataSourceById(input.sourceId);
         if (!source || source.userId !== ctx.user.id) {
           throw new TRPCError({ code: "FORBIDDEN" });

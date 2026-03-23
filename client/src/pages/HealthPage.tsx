@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
 import { Activity, RefreshCw, Cpu, CheckCircle, XCircle, AlertCircle, Zap, Play, Clock, Edit2, Trash2, Plus } from "lucide-react";
@@ -207,6 +208,11 @@ export default function HealthPage() {
   const [dsEditDialog, setDSEditDialog] = useState(false);
   const [selectedDS, setSelectedDS] = useState<number | null>(null);
   const [dsFormData, setDSFormData] = useState({ name: "", provider: "", endpoint: "", apiKey: "", description: "" });
+  
+  // 删除确认对话框
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteType, setDeleteType] = useState<'ai' | 'ds' | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<any>(null);
 
   const deleteAIMutation = trpc.ai.deleteConfig.useMutation({
     onSuccess: () => {
@@ -218,6 +224,10 @@ export default function HealthPage() {
   const deleteDSMutation = trpc.datasource.deleteConfig.useMutation({
     onSuccess: () => {
       toast.success("数据源已删除");
+      refetch();
+    },
+    onError: (err) => {
+      toast.error(`删除失败: ${err.message}`);
     },
   });
 
@@ -295,9 +305,9 @@ export default function HealthPage() {
                 setAIEditDialog(true);
               }}
               onDelete={() => {
-                if (confirm("确定删除此 AI 配置吗？")) {
-                  deleteAIMutation.mutate({ configId: config.id });
-                }
+                setDeleteType('ai');
+                setDeleteTarget(config);
+                setDeleteConfirmOpen(true);
               }}
             />
           ))}
@@ -369,14 +379,47 @@ export default function HealthPage() {
                 setDSEditDialog(true);
               }}
               onDelete={() => {
-                if (confirm(`确定删除 ${key} 数据源吗？`)) {
-                  deleteDSMutation.mutate({ sourceId: 0 });
-                }
+                setDeleteType('ds');
+                setDeleteTarget(key);
+                setDeleteConfirmOpen(true);
               }}
             />
           ))}
         </div>
       </div>
+
+      {/* 删除确认对话框 */}
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认删除</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteType === 'ai' ? `确定要删除 ${deleteTarget?.provider} AI 配置吗？` : `确定要删除 ${deleteTarget} 数据源吗？`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex gap-3 justify-end">
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-500 hover:bg-red-600"
+              onClick={() => {
+                if (deleteType === 'ai') {
+                  deleteAIMutation.mutate({ configId: deleteTarget.id });
+                } else if (deleteType === 'ds') {
+                  const customDS = dataSources?.find(ds => ds.name?.toLowerCase() === deleteTarget.toLowerCase());
+                  if (customDS) {
+                    deleteDSMutation.mutate({ sourceId: customDS.id });
+                  } else {
+                    deleteDSMutation.mutate({ sourceId: 0, sourceName: deleteTarget });
+                  }
+                }
+                setDeleteConfirmOpen(false);
+              }}
+            >
+              删除
+            </AlertDialogAction>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* AI 编辑对话框 */}
       <Dialog open={aiEditDialog} onOpenChange={setAIEditDialog}>
