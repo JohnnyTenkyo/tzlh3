@@ -201,3 +201,12 @@
 - [x] client/src/pages/SettingsPage.tsx：集成数据源管理面板和 AI 验证功能
 - [x] client/src/pages/BacktestPage.tsx：添加 AI 提供商选择下拉菜单
 - [x] 所有测试通过（14/14）、TypeScript 编译无错误、功能已验证
+
+
+## 第十六轮：数据源健康页面集成 AI 和数据源管理
+- [x] HealthPage.tsx：重写集成 AI 配置和数据源管理功能
+- [x] HealthPage.tsx：AI 服务状态卡片上添加编辑、删除、添加按钮
+- [x] HealthPage.tsx：每个数据源卡片上添加编辑、删除、添加按钮
+- [x] HealthPage.tsx：使用 Dialog 显示编辑表单
+- [x] 浏览器测试：验证添加 AI、添加数据源对话框正常打开
+- [x] 所有测试通过（14/14）、TypeScript 编译无错误

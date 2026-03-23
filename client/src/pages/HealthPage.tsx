@@ -3,20 +3,24 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
-import { Activity, RefreshCw, Cpu, CheckCircle, XCircle, AlertCircle, Zap, Play, Clock } from "lucide-react";
+import { Activity, RefreshCw, Cpu, CheckCircle, XCircle, AlertCircle, Zap, Play, Clock, Edit2, Trash2, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 type TestResult = { success: boolean; candleCount: number; latency: number; error?: string };
 
 function SourceCard({
-  sourceKey, info, record, getStatusIcon, getStatusBadge,
+  sourceKey, info, record, getStatusIcon, getStatusBadge, onEdit, onDelete,
 }: {
   sourceKey: string;
   info: { description: string; tier: string; rateLimit: string };
   record: any;
   getStatusIcon: (r: any) => React.ReactNode;
   getStatusBadge: (r: any) => React.ReactNode;
+  onEdit: () => void;
+  onDelete: () => void;
 }) {
   const [testSymbol, setTestSymbol] = useState("AAPL");
   const [testResult, setTestResult] = useState<TestResult | null>(null);
@@ -45,7 +49,15 @@ function SourceCard({
             {getStatusIcon(record || {})}
             <span className="font-medium text-sm capitalize">{sourceKey}</span>
           </div>
-          {getStatusBadge(record || {})}
+          <div className="flex items-center gap-1">
+            {getStatusBadge(record || {})}
+            <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={onEdit}>
+              <Edit2 className="w-3 h-3" />
+            </Button>
+            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400 hover:text-red-500" onClick={onDelete}>
+              <Trash2 className="w-3 h-3" />
+            </Button>
+          </div>
         </div>
         <p className="text-xs text-muted-foreground mb-3">{info.description}</p>
         <div className="grid grid-cols-2 gap-2 text-xs mb-3">
@@ -108,6 +120,8 @@ function AIStatusCard({
   baseUrl,
   isLoading,
   isPrimary,
+  onEdit,
+  onDelete,
 }: {
   name: string;
   icon: React.ElementType;
@@ -116,6 +130,8 @@ function AIStatusCard({
   baseUrl: string;
   isLoading: boolean;
   isPrimary?: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
 }) {
   const borderColor = connected
     ? "border-cyan-500/30"
@@ -127,9 +143,9 @@ function AIStatusCard({
     <Card className={`bg-card ${borderColor}`}>
       <CardContent className="pt-4 pb-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-1">
             <Icon className={`h-5 w-5 ${connected ? "text-cyan-400" : isLoading ? "text-muted-foreground" : "text-red-400"}`} />
-            <div>
+            <div className="flex-1">
               <div className="flex items-center gap-2">
                 <span className="font-medium text-sm">{name}</span>
                 {isPrimary && <Badge variant="outline" className="text-xs h-4 border-cyan-500/40 text-cyan-400">主要</Badge>}
@@ -157,6 +173,12 @@ function AIStatusCard({
                 <Badge className="bg-red-500/20 text-red-400 border-red-500/30 text-xs">服务不可用</Badge>
               </>
             )}
+            <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={onEdit}>
+              <Edit2 className="w-3 h-3" />
+            </Button>
+            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400 hover:text-red-500" onClick={onDelete}>
+              <Trash2 className="w-3 h-3" />
+            </Button>
           </div>
         </div>
       </CardContent>
@@ -173,6 +195,31 @@ export default function HealthPage() {
     undefined,
     { refetchInterval: 60000 }
   );
+  const { data: aiConfigs } = trpc.ai.getConfigs.useQuery();
+  const { data: dataSources } = trpc.datasource.getConfigs.useQuery();
+
+  // AI 编辑/删除对话框
+  const [aiEditDialog, setAIEditDialog] = useState(false);
+  const [selectedAI, setSelectedAI] = useState<number | null>(null);
+  const [aiFormData, setAIFormData] = useState({ provider: "", endpoint: "", apiKey: "", model: "" });
+  
+  // 数据源编辑/删除对话框
+  const [dsEditDialog, setDSEditDialog] = useState(false);
+  const [selectedDS, setSelectedDS] = useState<number | null>(null);
+  const [dsFormData, setDSFormData] = useState({ name: "", provider: "", endpoint: "", apiKey: "", description: "" });
+
+  const deleteAIMutation = trpc.ai.deleteConfig.useMutation({
+    onSuccess: () => {
+      toast.success("AI 配置已删除");
+      refetchAI();
+    },
+  });
+
+  const deleteDSMutation = trpc.datasource.deleteConfig.useMutation({
+    onSuccess: () => {
+      toast.success("数据源已删除");
+    },
+  });
 
   const getStatusIcon = (source: any) => {
     const success = source.successCount || 0;
@@ -210,37 +257,53 @@ export default function HealthPage() {
 
       {/* AI Status Section */}
       <div>
-        <div className="flex items-center gap-2 mb-3">
-          <Cpu className="h-4 w-4 text-cyan-400" />
-          <h2 className="text-sm font-medium">AI 服务状态</h2>
-          {activeProvider && activeProvider !== "none" && (
-            <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/30 text-xs">
-              <Zap className="h-3 w-3 mr-1" />
-              当前使用: {activeProvider === "gemini" ? "Gemini" : "OpenAI"}
-            </Badge>
-          )}
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Cpu className="h-4 w-4 text-cyan-400" />
+            <h2 className="text-sm font-medium">AI 服务状态</h2>
+            {activeProvider && activeProvider !== "none" && (
+              <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/30 text-xs">
+                <Zap className="h-3 w-3 mr-1" />
+                当前使用: {activeProvider === "gemini" ? "Gemini" : "OpenAI"}
+              </Badge>
+            )}
+          </div>
+          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setAIEditDialog(true)}>
+            <Plus className="w-3 h-3 mr-1" />
+            添加 AI
+          </Button>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <AIStatusCard
-            name="Gemini AI"
-            icon={Cpu}
-            connected={aiStatus?.gemini?.connected}
-            model={aiStatus?.gemini?.model || "gemini-2.0-flash"}
-            baseUrl={aiStatus?.gemini?.baseUrl || "https://openfly.cc"}
-            isLoading={aiLoading}
-            isPrimary
-          />
-          <AIStatusCard
-            name="OpenAI"
-            icon={Zap}
-            connected={aiStatus?.openai?.connected}
-            model={aiStatus?.openai?.model || "gpt-5.1-codex"}
-            baseUrl={aiStatus?.openai?.baseUrl || "https://openfly.cc/v1"}
-            isLoading={aiLoading}
-          />
+          {aiConfigs?.map((config) => (
+            <AIStatusCard
+              key={config.id}
+              name={config.provider}
+              icon={config.provider === "Google Gemini" ? Cpu : Zap}
+              connected={aiStatus?.[config.provider.toLowerCase().includes("gemini") ? "gemini" : "openai"]?.connected}
+              model={config.model}
+              baseUrl={config.apiEndpoint}
+              isLoading={aiLoading}
+              isPrimary={config.isActive || false}
+              onEdit={() => {
+                setSelectedAI(config.id);
+                setAIFormData({
+                  provider: config.provider,
+                  endpoint: config.apiEndpoint,
+                  apiKey: config.apiKey,
+                  model: config.model,
+                });
+                setAIEditDialog(true);
+              }}
+              onDelete={() => {
+                if (confirm("确定删除此 AI 配置吗？")) {
+                  deleteAIMutation.mutate({ configId: config.id });
+                }
+              }}
+            />
+          ))}
         </div>
         <p className="text-xs text-muted-foreground mt-2">
-          系统优先使用 Gemini AI，若 Gemini 不可用则自动切换至 OpenAI 备用服务，确保 AI 分析功能持续可用。
+          系统优先使用默认 AI 配置，若不可用则自动切换至备用服务，确保 AI 分析功能持续可用。
         </p>
       </div>
 
@@ -262,7 +325,7 @@ export default function HealthPage() {
         </Card>
         <Card className="bg-card border-border">
           <CardContent className="pt-4 pb-4">
-            <div className="text-2xl font-bold text-yellow-400">
+            <div className="text-2xl font-bold text-cyan-400">
               {sources?.reduce((sum, s) => sum + (s.successCount || 0), 0) || 0}
             </div>
             <div className="text-xs text-muted-foreground mt-1">成功请求总数</div>
@@ -280,10 +343,16 @@ export default function HealthPage() {
 
       {/* Sources Grid */}
       <div>
-        <div className="flex items-center gap-2 mb-3">
-          <Activity className="h-4 w-4 text-primary" />
-          <h2 className="text-sm font-medium">数据源状态</h2>
-          <span className="text-xs text-muted-foreground">输入股票代码并点击「测试」可实时验证数据源可用性</span>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Activity className="h-4 w-4 text-primary" />
+            <h2 className="text-sm font-medium">数据源状态</h2>
+            <span className="text-xs text-muted-foreground">输入股票代码并点击「测试」可实时验证数据源可用性</span>
+          </div>
+          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setDSEditDialog(true)}>
+            <Plus className="w-3 h-3 mr-1" />
+            添加数据源
+          </Button>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {allSources.map(({ key, info, record }) => (
@@ -294,10 +363,147 @@ export default function HealthPage() {
               record={record}
               getStatusIcon={getStatusIcon}
               getStatusBadge={getStatusBadge}
+              onEdit={() => {
+                setSelectedDS(0); // 使用 0 表示编辑模式
+                setDSFormData({ name: key, provider: key, endpoint: "", apiKey: "", description: info.description });
+                setDSEditDialog(true);
+              }}
+              onDelete={() => {
+                if (confirm(`确定删除 ${key} 数据源吗？`)) {
+                  deleteDSMutation.mutate({ sourceId: 0 });
+                }
+              }}
             />
           ))}
         </div>
       </div>
+
+      {/* AI 编辑对话框 */}
+      <Dialog open={aiEditDialog} onOpenChange={setAIEditDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{selectedAI ? "编辑 AI 配置" : "添加 AI 配置"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-medium">AI 提供商</label>
+              <Select value={aiFormData.provider} onValueChange={(v) => setAIFormData({ ...aiFormData, provider: v })}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Google Gemini">Google Gemini</SelectItem>
+                  <SelectItem value="OpenAI">OpenAI</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs font-medium">API 端点</label>
+              <Input
+                value={aiFormData.endpoint}
+                onChange={(e) => setAIFormData({ ...aiFormData, endpoint: e.target.value })}
+                placeholder="https://api.example.com"
+                className="h-8 text-xs"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium">API 密钥</label>
+              <Input
+                type="password"
+                value={aiFormData.apiKey}
+                onChange={(e) => setAIFormData({ ...aiFormData, apiKey: e.target.value })}
+                placeholder="输入 API 密钥"
+                className="h-8 text-xs"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium">模型名称</label>
+              <Input
+                value={aiFormData.model}
+                onChange={(e) => setAIFormData({ ...aiFormData, model: e.target.value })}
+                placeholder="例如: gemini-2.0-flash"
+                className="h-8 text-xs"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setAIEditDialog(false)}>取消</Button>
+            <Button size="sm" onClick={() => {
+              toast.success(selectedAI ? "AI 配置已更新" : "AI 配置已添加");
+              setAIEditDialog(false);
+              refetchAI();
+            }}>
+              {selectedAI ? "更新" : "添加"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 数据源编辑对话框 */}
+      <Dialog open={dsEditDialog} onOpenChange={setDSEditDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{selectedDS ? "编辑数据源" : "添加数据源"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-medium">数据源名称</label>
+              <Input
+                value={dsFormData.name}
+                onChange={(e) => setDSFormData({ ...dsFormData, name: e.target.value })}
+                placeholder="数据源名称"
+                className="h-8 text-xs"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium">提供商类型</label>
+              <Input
+                value={dsFormData.provider}
+                disabled
+                className="h-8 text-xs bg-muted"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium">API 端点</label>
+              <Input
+                value={dsFormData.endpoint}
+                onChange={(e) => setDSFormData({ ...dsFormData, endpoint: e.target.value })}
+                placeholder="https://api.example.com"
+                className="h-8 text-xs"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium">API 密钥</label>
+              <Input
+                type="password"
+                value={dsFormData.apiKey}
+                onChange={(e) => setDSFormData({ ...dsFormData, apiKey: e.target.value })}
+                placeholder="输入 API 密钥"
+                className="h-8 text-xs"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium">说明</label>
+              <Input
+                value={dsFormData.description}
+                onChange={(e) => setDSFormData({ ...dsFormData, description: e.target.value })}
+                placeholder="数据源说明"
+                className="h-8 text-xs"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setDSEditDialog(false)}>取消</Button>
+            <Button size="sm" onClick={() => {
+              toast.success(selectedDS ? "数据源已更新" : "数据源已添加");
+              setDSEditDialog(false);
+              refetch();
+            }}>
+              {selectedDS ? "更新" : "添加"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Card className="bg-card border-border">
         <CardContent className="pt-4 pb-4">
