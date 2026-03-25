@@ -143,19 +143,21 @@ async function updateCacheMetadata(symbol: string, timeframe: string): Promise<v
     }).from(historicalCandleCache).where(
       and(eq(historicalCandleCache.symbol, symbol), eq(historicalCandleCache.timeframe, timeframe))
     );
-    if (!stats[0] || stats[0].cnt === 0) return;
-    const { cnt, oldest, newest } = stats[0];
+    if (!stats[0]) return;
+    const cnt = Number(stats[0].cnt) || 0;
+    if (cnt === 0) return;
+    const { oldest, newest } = stats[0];
     const existing = await db.select().from(cacheMetadata).where(
       and(eq(cacheMetadata.symbol, symbol), eq(cacheMetadata.timeframe, timeframe))
     ).limit(1);
     if (existing.length === 0) {
       await db.insert(cacheMetadata).values({
-        symbol, timeframe, oldestDate: oldest, newestDate: newest,
+        symbol, timeframe, oldestDate: oldest || new Date().toISOString().split('T')[0], newestDate: newest || new Date().toISOString().split('T')[0],
         candleCount: cnt, status: "partial",
       });
     } else {
       await db.update(cacheMetadata).set({
-        oldestDate: oldest, newestDate: newest,
+        oldestDate: oldest || new Date().toISOString().split('T')[0], newestDate: newest || new Date().toISOString().split('T')[0],
         candleCount: cnt, status: "partial",
       }).where(and(eq(cacheMetadata.symbol, symbol), eq(cacheMetadata.timeframe, timeframe)));
     }

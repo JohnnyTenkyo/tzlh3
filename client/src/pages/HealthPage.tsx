@@ -204,20 +204,76 @@ export default function HealthPage() {
   const [selectedAI, setSelectedAI] = useState<number | null>(null);
   const [aiFormData, setAIFormData] = useState({ provider: "", endpoint: "", apiKey: "", model: "" });
   
+  // 编辑 AI 的 mutation
+  const updateAIMutation = trpc.ai.updateConfig.useMutation({
+    onSuccess: () => {
+      toast.success("AI 配置已更新");
+      setAIEditDialog(false);
+      refetchAI();
+      utils.ai.getConfigs.invalidate();
+    },
+    onError: (err) => {
+      toast.error(`更新失败: ${err.message}`);
+    },
+  });
+  
+  // 创建 AI 的 mutation
+  const createAIMutation = trpc.ai.createConfig.useMutation({
+    onSuccess: () => {
+      toast.success("AI 配置已添加");
+      setAIEditDialog(false);
+      setAIFormData({ provider: "", endpoint: "", apiKey: "", model: "" });
+      refetchAI();
+      utils.ai.getConfigs.invalidate();
+    },
+    onError: (err) => {
+      toast.error(`添加失败: ${err.message}`);
+    },
+  });
+  
   // 数据源编辑/删除对话框
   const [dsEditDialog, setDSEditDialog] = useState(false);
   const [selectedDS, setSelectedDS] = useState<number | null>(null);
   const [dsFormData, setDSFormData] = useState({ name: "", provider: "", endpoint: "", apiKey: "", description: "" });
   
+  // 编辑数据源的 mutation
+  const updateDSMutation = trpc.datasource.updateConfig.useMutation({
+    onSuccess: () => {
+      toast.success("数据源已更新");
+      setDSEditDialog(false);
+      refetch();
+      utils.datasource.getConfigs.invalidate();
+    },
+    onError: (err) => {
+      toast.error(`更新失败: ${err.message}`);
+    },
+  });
+  
+  // 创建数据源的 mutation
+  const createDSMutation = trpc.datasource.createConfig.useMutation({
+    onSuccess: () => {
+      toast.success("数据源已添加");
+      setDSEditDialog(false);
+      setDSFormData({ name: "", provider: "", endpoint: "", apiKey: "", description: "" });
+      refetch();
+      utils.datasource.getConfigs.invalidate();
+    },
+    onError: (err) => {
+      toast.error(`添加失败: ${err.message}`);
+    },
+  });
+  
   // 删除确认对话框
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteType, setDeleteType] = useState<'ai' | 'ds' | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
+  const utils = trpc.useUtils();
 
   const deleteAIMutation = trpc.ai.deleteConfig.useMutation({
     onSuccess: () => {
       toast.success("AI 配置已删除");
       refetchAI();
+      utils.ai.getConfigs.invalidate();
     },
   });
 
@@ -225,6 +281,7 @@ export default function HealthPage() {
     onSuccess: () => {
       toast.success("数据源已删除");
       refetch();
+      utils.datasource.getConfigs.invalidate();
     },
     onError: (err) => {
       toast.error(`删除失败: ${err.message}`);
@@ -249,10 +306,26 @@ export default function HealthPage() {
     return <Badge className="bg-red-500/20 text-red-400 border-red-500/30 text-xs">异常</Badge>;
   };
 
-  const allSources = Object.keys(SOURCE_INFO).map(key => {
+  // 内置数据源（始终显示）
+  const builtInSources = Object.keys(SOURCE_INFO).map(key => {
     const dbRecord = sources?.find(s => s.source.toLowerCase() === key.toLowerCase());
-    return { key, info: SOURCE_INFO[key], record: dbRecord };
+    return { key, info: SOURCE_INFO[key], record: dbRecord, isBuiltIn: true };
   });
+
+  // 自定义数据源（从 customDataSources 获取）
+  const customSources = (dataSources || []).map(ds => ({
+    key: ds.name || ds.provider,
+    info: {
+      description: ds.description || `自定义数据源: ${ds.provider}`,
+      tier: "自定义",
+      rateLimit: "自定义",
+    },
+    record: null,
+    isBuiltIn: false,
+    customSourceId: ds.id,
+  }));
+
+  const allSources = [...builtInSources, ...customSources];
 
   const activeProvider = aiStatus?.activeProvider;
 
@@ -365,8 +438,10 @@ export default function HealthPage() {
           </Button>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {allSources.map(({ key, info, record }) => (
-            <SourceCard
+          {allSources.map((source) => {
+            const { key, info, record, isBuiltIn, customSourceId } = source as any;
+            return (
+              <SourceCard
               key={key}
               sourceKey={key}
               info={info}
@@ -374,17 +449,32 @@ export default function HealthPage() {
               getStatusIcon={getStatusIcon}
               getStatusBadge={getStatusBadge}
               onEdit={() => {
-                setSelectedDS(0); // 使用 0 表示编辑模式
-                setDSFormData({ name: key, provider: key, endpoint: "", apiKey: "", description: info.description });
+                if (isBuiltIn) {
+                  setSelectedDS(0); // 使用 0 表示编辑模式
+                  setDSFormData({ name: key, provider: key, endpoint: "", apiKey: "", description: info.description });
+                } else {
+                  const customDS = dataSources?.find(ds => ds.id === customSourceId);
+                  if (customDS) {
+                    setSelectedDS(customDS.id);
+                    setDSFormData({
+                      name: customDS.name || "",
+                      provider: customDS.provider || "",
+                      endpoint: customDS.apiEndpoint || "",
+                      apiKey: customDS.apiKey || "",
+                      description: customDS.description || "",
+                    });
+                  }
+                }
                 setDSEditDialog(true);
               }}
               onDelete={() => {
                 setDeleteType('ds');
-                setDeleteTarget(key);
+                setDeleteTarget({ key, isBuiltIn, customSourceId });
                 setDeleteConfirmOpen(true);
               }}
-            />
-          ))}
+              />
+            );
+          })}
         </div>
       </div>
 
@@ -394,7 +484,11 @@ export default function HealthPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>确认删除</AlertDialogTitle>
             <AlertDialogDescription>
-              {deleteType === 'ai' ? `确定要删除 ${deleteTarget?.provider} AI 配置吗？` : `确定要删除 ${deleteTarget} 数据源吗？`}
+              {deleteType === 'ai'
+                ? `确定要删除 ${deleteTarget?.provider} AI 配置吗？`
+                : deleteTarget?.isBuiltIn
+                ? `确定要删除 ${deleteTarget?.key} 数据源配置吗？删除后将显示为"未配置"状态。`
+                : `确定要删除自定义数据源 ${deleteTarget?.key} 吗？`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="flex gap-3 justify-end">
@@ -405,11 +499,12 @@ export default function HealthPage() {
                 if (deleteType === 'ai') {
                   deleteAIMutation.mutate({ configId: deleteTarget.id });
                 } else if (deleteType === 'ds') {
-                  const customDS = dataSources?.find(ds => ds.name?.toLowerCase() === deleteTarget.toLowerCase());
-                  if (customDS) {
-                    deleteDSMutation.mutate({ sourceId: customDS.id });
-                  } else {
-                    deleteDSMutation.mutate({ sourceId: 0, sourceName: deleteTarget });
+                  if (deleteTarget?.isBuiltIn) {
+                    // 内置数据源：删除配置（显示为未配置）
+                    deleteDSMutation.mutate({ sourceId: 0, sourceName: deleteTarget.key });
+                  } else if (deleteTarget?.customSourceId) {
+                    // 自定义数据源：完全删除
+                    deleteDSMutation.mutate({ sourceId: deleteTarget.customSourceId });
                   }
                 }
                 setDeleteConfirmOpen(false);
@@ -427,6 +522,11 @@ export default function HealthPage() {
           <DialogHeader>
             <DialogTitle>{selectedAI ? "编辑 AI 配置" : "添加 AI 配置"}</DialogTitle>
           </DialogHeader>
+          {selectedAI && (
+            <div className="text-xs text-muted-foreground bg-muted p-2 rounded">
+              编辑现有 AI 配置
+            </div>
+          )}
           <div className="space-y-4">
             <div>
               <label className="text-xs font-medium">AI 提供商</label>
@@ -470,12 +570,37 @@ export default function HealthPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setAIEditDialog(false)}>取消</Button>
-            <Button size="sm" onClick={() => {
-              toast.success(selectedAI ? "AI 配置已更新" : "AI 配置已添加");
-              setAIEditDialog(false);
-              refetchAI();
-            }}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setAIEditDialog(false);
+                setSelectedAI(null);
+                setAIFormData({ provider: "", endpoint: "", apiKey: "", model: "" });
+              }}
+            >
+              取消
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                if (selectedAI) {
+                  updateAIMutation.mutate({
+                    configId: selectedAI,
+                    apiEndpoint: aiFormData.endpoint,
+                    apiKey: aiFormData.apiKey,
+                    model: aiFormData.model,
+                  });
+                } else {
+                  createAIMutation.mutate({
+                    provider: aiFormData.provider,
+                    apiEndpoint: aiFormData.endpoint,
+                    apiKey: aiFormData.apiKey,
+                    model: aiFormData.model,
+                  });
+                }
+              }}
+            >
               {selectedAI ? "更新" : "添加"}
             </Button>
           </DialogFooter>
@@ -486,8 +611,18 @@ export default function HealthPage() {
       <Dialog open={dsEditDialog} onOpenChange={setDSEditDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{selectedDS ? "编辑数据源" : "添加数据源"}</DialogTitle>
+            <DialogTitle>{selectedDS && selectedDS > 0 ? "编辑数据源" : "添加数据源"}</DialogTitle>
           </DialogHeader>
+          {selectedDS === 0 && (
+            <div className="text-xs text-muted-foreground bg-muted p-2 rounded">
+              编辑内置数据源配置（留空表示使用默认配置）
+            </div>
+          )}
+          {selectedDS && selectedDS > 0 && (
+            <div className="text-xs text-muted-foreground bg-muted p-2 rounded">
+              编辑自定义数据源
+            </div>
+          )}
           <div className="space-y-4">
             <div>
               <label className="text-xs font-medium">数据源名称</label>
@@ -502,8 +637,10 @@ export default function HealthPage() {
               <label className="text-xs font-medium">提供商类型</label>
               <Input
                 value={dsFormData.provider}
-                disabled
-                className="h-8 text-xs bg-muted"
+                onChange={(e) => setDSFormData({ ...dsFormData, provider: e.target.value })}
+                placeholder="例如: alpaca, custom_api"
+                className="h-8 text-xs"
+                disabled={selectedDS === 0}
               />
             </div>
             <div>
@@ -536,13 +673,41 @@ export default function HealthPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setDSEditDialog(false)}>取消</Button>
-            <Button size="sm" onClick={() => {
-              toast.success(selectedDS ? "数据源已更新" : "数据源已添加");
-              setDSEditDialog(false);
-              refetch();
-            }}>
-              {selectedDS ? "更新" : "添加"}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setDSEditDialog(false);
+                setSelectedDS(null);
+                setDSFormData({ name: "", provider: "", endpoint: "", apiKey: "", description: "" });
+              }}
+            >
+              取消
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                if (selectedDS && selectedDS > 0) {
+                  updateDSMutation.mutate({
+                    sourceId: selectedDS,
+                    name: dsFormData.name,
+                    provider: dsFormData.provider,
+                    apiEndpoint: dsFormData.endpoint,
+                    apiKey: dsFormData.apiKey,
+                    description: dsFormData.description,
+                  });
+                } else {
+                  createDSMutation.mutate({
+                    name: dsFormData.name,
+                    provider: dsFormData.provider,
+                    apiEndpoint: dsFormData.endpoint,
+                    apiKey: dsFormData.apiKey,
+                    description: dsFormData.description,
+                  });
+                }
+              }}
+            >
+              {selectedDS && selectedDS > 0 ? "更新" : "添加"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,0 +1,21 @@
+{
+  "query": "SELECT * FROM data_source_health WHERE source = 'alpaca' LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 218ocDVKM1Q7AMs.root --database FbqmtzWopVzvxjZUExbwvL --execute SELECT * FROM data_source_health WHERE source = 'alpaca' LIMIT 5;",
+  "rows": [
+    {
+      "id": "1",
+      "source": "alpaca",
+      "timeframe": "1d",
+      "successCount": "0",
+      "failCount": "3533",
+      "lastSuccess": "NULL",
+      "lastFail": "2026-03-23 06:27:32",
+      "lastError": "Request failed with status code 404",
+      "updatedAt": "2026-03-23 06:27:31"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tsource\ttimeframe\tsuccessCount\tfailCount\tlastSuccess\tlastFail\tlastError\tupdatedAt\n1\talpaca\t1d\t0\t3533\tNULL\t2026-03-23 06:27:32\tRequest failed with status code 404\t2026-03-23 06:27:31\n",
+  "stderr": "",
+  "execution_time_ms": 1738
+}

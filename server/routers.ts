@@ -5,7 +5,7 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getDb, registerUser, verifyPassword, changePassword } from "./db";
-import { backtestSessions, backtestTrades, dataSourceHealth } from "../drizzle/schema";
+import { backtestSessions, backtestTrades, dataSourceHealth, customDataSources } from "../drizzle/schema";
 import { eq, desc, inArray } from "drizzle-orm";
 import type { Timeframe, DataSource } from "./marketData";
 import { testDataSource } from "./marketData";
@@ -650,10 +650,18 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const { getCustomDataSourceById, deleteCustomDataSource } = await import("./db");
         
+        // 删除内置数据源的配置（从 dataSourceHealth 表中删除）
         if (input.sourceId === 0 && input.sourceName) {
+          const db = await getDb();
+          if (db) {
+            await db.delete(dataSourceHealth).where(
+              eq(dataSourceHealth.source, input.sourceName)
+            );
+          }
           return { success: true };
         }
         
+        // 删除自定义数据源
         const source = await getCustomDataSourceById(input.sourceId);
         if (!source || source.userId !== ctx.user.id) {
           throw new TRPCError({ code: "FORBIDDEN" });
