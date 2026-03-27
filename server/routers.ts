@@ -5,8 +5,8 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getDb, registerUser, verifyPassword, changePassword } from "./db";
-import { backtestSessions, backtestTrades, dataSourceHealth, customDataSources } from "../drizzle/schema";
-import { eq, desc, inArray } from "drizzle-orm";
+import { backtestSessions, backtestTrades, dataSourceHealth, customDataSources, cacheMetadata } from "../drizzle/schema";
+import { eq, desc, inArray, sql } from "drizzle-orm";
 import type { Timeframe, DataSource } from "./marketData";
 import { testDataSource } from "./marketData";
 import { calculateMACD, calculateLadder, calculateCDSignals } from "./indicators";
@@ -437,6 +437,25 @@ export const appRouter = router({
       return { message: `开始缓存 ${symbols.length} 只股票的日线数据（自动重试失败项）`, total: symbols.length };
     }),
     warmingStatus: publicProcedure.query(() => getCacheWarmingStatus()),
+    failedSymbols: publicProcedure
+      .input(z.object({ symbols: z.array(z.string()).optional() }))
+      .query(async ({ input }) => {
+        const db = await getDb();
+        if (!db) return { failed: [], total: 0 };
+        
+        try {
+          const symbols = input.symbols || STOCK_POOL.map(s => s.symbol);
+          const cached = await db.select({ symbol: cacheMetadata.symbol }).from(cacheMetadata).where(
+            inArray(cacheMetadata.symbol, symbols)
+          );
+          const cachedSet = new Set(cached.map(c => c.symbol));
+          const failed = symbols.filter(s => !cachedSet.has(s));
+          return { failed, total: symbols.length, cachedCount: cachedSet.size };
+        } catch (err) {
+          console.error("[Cache] Failed to get failed symbols:", err);
+          return { failed: [], total: 0, error: "Failed to query cache status" };
+        }
+      }),
     resume: protectedProcedure.query(async ({ ctx }) => {
       const { getIncompleteWarmingProgress } = await import("./db");
       const progress = await getIncompleteWarmingProgress(ctx.user.id);

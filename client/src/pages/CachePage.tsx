@@ -25,6 +25,7 @@ export default function CachePage() {
   const [selectedSectors, setSelectedSectors] = useState<StockSector[]>([]);
   const [selectedCapTiers, setSelectedCapTiers] = useState<MarketCapTier[]>([]);
   const [filteredSymbols, setFilteredSymbols] = useState<string[]>(STOCK_POOL.map(s => s.symbol));
+  const [showFailedSymbols, setShowFailedSymbols] = useState(false);
 
   // Helper to update filtered symbols
   const updateFiltered = (sectors: StockSector[], tiers: MarketCapTier[]) => {
@@ -44,6 +45,11 @@ export default function CachePage() {
     { refetchInterval: 3000 }
   );
 
+  const { data: failedData, refetch: refetchFailed } = trpc.cache.failedSymbols.useQuery(
+    { symbols: filteredSymbols },
+    { enabled: false }
+  );
+
   const warmMutation = trpc.cache.warmDaily.useMutation({
     onSuccess: ({ message }) => { toast.success(message); utils.cache.status.invalidate(); },
     onError: (e) => toast.error(e.message),
@@ -59,6 +65,10 @@ export default function CachePage() {
     return acc;
   }, {});
 
+  const failedSymbols = failedData?.failed || [];
+  const cachedCount = failedData?.cachedCount || 0;
+  const totalCount = failedData?.total || 0;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -69,7 +79,7 @@ export default function CachePage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4" id="stats-grid">
         <Card className="bg-card border-border">
           <CardContent className="pt-4 pb-4">
             <div className="text-2xl font-bold text-blue-400">{Object.keys(groupedEntries).length}</div>
@@ -99,6 +109,54 @@ export default function CachePage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Failed Symbols Card */}
+      {isAuthenticated && totalCount > 0 && (
+        <Card className="bg-card border-border cursor-pointer hover:border-orange-500/50" onClick={() => { refetchFailed(); setShowFailedSymbols(!showFailedSymbols); }}>
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-2xl font-bold text-orange-400">{totalCount - cachedCount}</div>
+                <div className="text-xs text-muted-foreground mt-1">未缓存股票 (点击展开)</div>
+              </div>
+              <div className="text-xs text-muted-foreground text-right">
+                <div>{cachedCount}/{totalCount}</div>
+                <div>已缓存</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Failed Symbols List */}
+      {showFailedSymbols && failedSymbols.length > 0 && (
+        <Card className="bg-card border-orange-500/30 border-2">
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-orange-400">未缓存股票列表 ({failedSymbols.length}/{totalCount})</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-4 md:grid-cols-8 gap-2 max-h-40 overflow-y-auto">
+              {failedSymbols.map(symbol => (
+                <Badge key={symbol} variant="outline" className="text-xs justify-center">{symbol}</Badge>
+              ))}
+            </div>
+            {isAuthenticated && (
+              <Button
+                size="sm"
+                className="w-full"
+                onClick={() => {
+                  warmMutation.mutate({ symbols: failedSymbols });
+                  setShowFailedSymbols(false);
+                }}
+                disabled={warmMutation.isPending}
+              >
+                <Zap className="h-4 w-4 mr-2" />
+                单独缓存这些股票
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Warming Progress */}
       {warming?.isWarming && (

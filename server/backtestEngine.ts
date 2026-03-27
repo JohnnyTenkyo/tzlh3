@@ -12,8 +12,8 @@ import {
 import { calculateTradeFees } from "./tigerTradeFees";
 import { getCandlesWithCache } from "./cacheManager";
 import { getDb } from "./db";
-import { backtestSessions, backtestTrades } from "../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { backtestSessions, backtestTrades, cacheMetadata } from "../drizzle/schema";
+import { eq, sql } from "drizzle-orm";
 
 export type StrategyType = "standard" | "aggressive" | "ladder_cd_combo" | "mean_reversion" | "macd_volume" | "bollinger_squeeze";
 
@@ -218,7 +218,8 @@ function makeBuyTrade(symbol: string, quantity: number, price: number, reason: s
 export async function runBacktest(config: BacktestConfig): Promise<BacktestResult> {
   const db = await getDb();
   const backtestStartTime = Date.now();
-  const BACKTEST_TIMEOUT = 5 * 60 * 1000; // 5 minutes total timeout
+  // 增加总超时：每个股票最多 60 秒，793 个股票最大需要 ~13 分钟（并发 10 个） + 回测计算
+  const BACKTEST_TIMEOUT = 30 * 60 * 1000; // 30 minutes total timeout
   
   if (db) {
     await db.update(backtestSessions).set({ status: "running", progress: 0, progressMessage: "初始化回测..." })
@@ -264,9 +265,24 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
 
     const totalSymbols = config.symbols.length;
     
+    // Phase 0: Check which symbols have cache
+    console.log(`[Backtest] Checking cache status for ${totalSymbols} symbols...`);
+    const cachedSymbols = new Set<string>();
+    try {
+      if (db) {
+        const cached = await db.select({ symbol: cacheMetadata.symbol }).from(cacheMetadata).where(
+          sql`${cacheMetadata.symbol} IN (${config.symbols.map(s => `'${s}'`).join(',')})`
+        );
+        cached.forEach(c => cachedSymbols.add(c.symbol));
+      }
+    } catch (err) {
+      console.warn(`[Backtest] Failed to check cache status:`, err);
+    }
+    console.log(`[Backtest] Cache status: ${cachedSymbols.size}/${totalSymbols} symbols have cache`);
+    
     // Phase 1: Concurrently fetch all candles (with 10 parallel requests max)
     console.log(`[Backtest] Starting concurrent data fetch for ${totalSymbols} symbols...`);
-    const CONCURRENT_LIMIT = 10;
+    const CONCURRENT_LIMIT = 10; // 并发 10 个请求，每个最多 60 秒 = 最大 600 秒 / 批
     const candleMap = new Map<string, Candle[]>();
     const fetchErrors = new Map<string, string>();
     
@@ -285,7 +301,8 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
           const startTime = Date.now();
           const candles = await getCandlesWithCache(symbol, "1d", config.startDate, config.endDate);
           const duration = Date.now() - startTime;
-          console.log(`[Backtest] ${symbol}: fetched ${candles.length} candles in ${duration}ms`);
+          const isCached = cachedSymbols.has(symbol);
+          console.log(`[Backtest] ${symbol}: ${candles.length} candles in ${duration}ms (cached=${isCached})`);
           
           if (candles.length >= 100) {
             candleMap.set(symbol, candles);
@@ -302,6 +319,10 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
     }
     
     console.log(`[Backtest] Data fetch complete: ${candleMap.size} symbols loaded, ${fetchErrors.size} failed`);
+    if (fetchErrors.size > 0) {
+      const failedList = Array.from(fetchErrors.keys()).slice(0, 20).join(', ');
+      console.log(`[Backtest] Failed symbols: ${failedList}${fetchErrors.size > 20 ? '...' : ''}`);
+    }
     
     // Phase 2: Process strategies sequentially on loaded data
     let processedSymbols = 0;

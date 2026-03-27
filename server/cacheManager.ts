@@ -556,7 +556,7 @@ export async function getCandlesWithCache(
       try {
         const nextDay = formatDate(new Date(newestDate.getTime() + 86400000));
         const timeoutPromise = new Promise<Candle[]>((_, reject) =>
-          setTimeout(() => reject(new Error(`Timeout`)), 15000)
+          setTimeout(() => reject(new Error(`Timeout`)), 20000) // 增加到 20 秒
         );
         const newCandles = await Promise.race([
           fetchHistoricalCandles(symbol, timeframe, nextDay, ed),
@@ -571,10 +571,10 @@ export async function getCandlesWithCache(
     }
   } catch { /* ignore cache errors */ }
 
-  // No cache: full fetch with 30s timeout
+  // No cache: full fetch with 60s timeout (increased from 30s for slow APIs)
   try {
     const timeoutPromise = new Promise<Candle[]>((_, reject) =>
-      setTimeout(() => reject(new Error(`Timeout fetching ${symbol}/${timeframe}`)), 30000)
+      setTimeout(() => reject(new Error(`Timeout fetching ${symbol}/${timeframe}`)), 60000) // 增加到 60 秒
     );
     const fetchPromise = fetchHistoricalCandles(symbol, timeframe, sd, ed);
     const candles = await Promise.race([fetchPromise, timeoutPromise]);
@@ -584,6 +584,14 @@ export async function getCandlesWithCache(
     return candles;
   } catch (err) {
     console.warn(`[Cache] getCandlesWithCache failed for ${symbol}/${timeframe}: ${err instanceof Error ? err.message : String(err)}`);
+    // 尝试返回部分缓存数据而不是空数组
+    try {
+      const partialCache = await getCandlesFromCache(symbol, timeframe, sd, ed);
+      if (partialCache && partialCache.length > 0) {
+        console.warn(`[Cache] Returning ${partialCache.length} partial cached candles for ${symbol}/${timeframe}`);
+        return partialCache;
+      }
+    } catch { /* ignore */ }
     return [];
   }
 }
