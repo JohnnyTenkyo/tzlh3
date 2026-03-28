@@ -438,22 +438,29 @@ export const appRouter = router({
     }),
     warmingStatus: publicProcedure.query(() => getCacheWarmingStatus()),
     failedSymbols: publicProcedure
-      .input(z.object({ symbols: z.array(z.string()).optional() }))
-      .query(async ({ input }) => {
+      .query(async () => {
         const db = await getDb();
-        if (!db) return { failed: [], total: 0 };
+        if (!db) return { failed: [], total: 0, cachedCount: 0 };
         
         try {
-          const symbols = input.symbols || STOCK_POOL.map(s => s.symbol);
-          const cached = await db.select({ symbol: cacheMetadata.symbol }).from(cacheMetadata).where(
-            inArray(cacheMetadata.symbol, symbols)
-          );
-          const cachedSet = new Set(cached.map(c => c.symbol));
-          const failed = symbols.filter(s => !cachedSet.has(s));
-          return { failed, total: symbols.length, cachedCount: cachedSet.size };
+          // Get all cached symbols from database
+          const cached = await db.select({ symbol: cacheMetadata.symbol }).from(cacheMetadata);
+          const cachedSet = new Set(cached.map((c: any) => c.symbol));
+          
+          // Get all symbols from stock pool
+          const allSymbols = STOCK_POOL.map(s => s.symbol);
+          
+          // Find failed/uncached symbols
+          const failed = allSymbols.filter(s => !cachedSet.has(s));
+          
+          return { 
+            failed, 
+            total: allSymbols.length, 
+            cachedCount: cachedSet.size 
+          };
         } catch (err) {
           console.error("[Cache] Failed to get failed symbols:", err);
-          return { failed: [], total: 0, error: "Failed to query cache status" };
+          return { failed: [], total: 0, cachedCount: 0, error: "Failed to query cache status" };
         }
       }),
     resume: protectedProcedure.query(async ({ ctx }) => {

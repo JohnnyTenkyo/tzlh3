@@ -46,8 +46,14 @@ export default function CachePage() {
   );
 
   const { data: failedData, refetch: refetchFailed } = trpc.cache.failedSymbols.useQuery(
-    { symbols: filteredSymbols },
+    undefined,
     { enabled: false }
+  );
+
+  // 添加单独的查询来获取缓存统计数据（总股票数、已缓存数）
+  const { data: cacheStatsData } = trpc.cache.failedSymbols.useQuery(
+    undefined,
+    { refetchInterval: 5000 }
   );
 
   const warmMutation = trpc.cache.warmDaily.useMutation({
@@ -66,8 +72,8 @@ export default function CachePage() {
   }, {});
 
   const failedSymbols = failedData?.failed || [];
-  const cachedCount = failedData?.cachedCount || 0;
-  const totalCount = failedData?.total || 0;
+  const cachedCount = failedData?.cachedCount || cacheStatsData?.cachedCount || 0;
+  const totalCount = failedData?.total || cacheStatsData?.total || 0;
 
   return (
     <div className="space-y-6">

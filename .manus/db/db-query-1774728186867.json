@@ -1,0 +1,14 @@
+{
+  "query": "SELECT COUNT(*) as total, COUNT(DISTINCT symbol) as unique_symbols FROM cache_metadata",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 218ocDVKM1Q7AMs.root --database FbqmtzWopVzvxjZUExbwvL --execute SELECT COUNT(*) as total, COUNT(DISTINCT symbol) as unique_symbols FROM cache_metadata",
+  "rows": [
+    {
+      "total": "790",
+      "unique_symbols": "790"
+    }
+  ],
+  "messages": [],
+  "stdout": "total\tunique_symbols\n790\t790\n",
+  "stderr": "",
+  "execution_time_ms": 1588
+}

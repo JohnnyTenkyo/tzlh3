@@ -1,0 +1,8 @@
+{
+  "query": "SELECT COUNT(*) as total, COUNT(DISTINCT symbol) as unique_symbols FROM cacheMetadata LIMIT 1",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 218ocDVKM1Q7AMs.root --database FbqmtzWopVzvxjZUExbwvL --execute SELECT COUNT(*) as total, COUNT(DISTINCT symbol) as unique_symbols FROM cacheMetadata LIMIT 1",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1146 (42S02) at line 1: Table 'fbqmtzwopvzvxjzuexbwvl.cacheMetadata' doesn't exist"
+  ]
+}
