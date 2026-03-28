@@ -280,42 +280,59 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
     }
     console.log(`[Backtest] Cache status: ${cachedSymbols.size}/${totalSymbols} symbols have cache`);
     
-    // Phase 1: Concurrently fetch all candles (with 10 parallel requests max)
-    console.log(`[Backtest] Starting concurrent data fetch for ${totalSymbols} symbols...`);
-    const CONCURRENT_LIMIT = 10; // 并发 10 个请求，每个最多 60 秒 = 最大 600 秒 / 批
+    // Phase 1: Stream fetch all candles (with 10 parallel requests max)
+    console.log(`[Backtest] Starting streaming data fetch for ${totalSymbols} symbols...`);
+    const CONCURRENT_LIMIT = 10;
     const candleMap = new Map<string, Candle[]>();
     const fetchErrors = new Map<string, string>();
+    let loadedCount = 0;
     
-    for (let i = 0; i < totalSymbols; i += CONCURRENT_LIMIT) {
+    // Create a queue for concurrent processing
+    const queue = [...config.symbols];
+    const activePromises = new Set<Promise<void>>();
+    
+    while (queue.length > 0 || activePromises.size > 0) {
       checkTimeout();
-      const batch = config.symbols.slice(i, i + CONCURRENT_LIMIT);
-      const progress = Math.round((i / totalSymbols) * 50); // First 50% for data fetch
-      if (db) {
-        await db.update(backtestSessions).set({
-          progress, progressMessage: `加载数据 (${i}/${totalSymbols})...`,
-        }).where(eq(backtestSessions.id, config.sessionId));
+      
+      // Fill up to CONCURRENT_LIMIT concurrent requests
+      while (queue.length > 0 && activePromises.size < CONCURRENT_LIMIT) {
+        const symbol = queue.shift()!;
+        
+        const fetchPromise = (async () => {
+          try {
+            const startTime = Date.now();
+            const candles = await getCandlesWithCache(symbol, "1d", config.startDate, config.endDate);
+            const duration = Date.now() - startTime;
+            const isCached = cachedSymbols.has(symbol);
+            console.log(`[Backtest] ${symbol}: ${candles.length} candles in ${duration}ms (cached=${isCached})`);
+            
+            if (candles.length >= 100) {
+              candleMap.set(symbol, candles);
+            } else {
+              fetchErrors.set(symbol, `only ${candles.length} candles`);
+            }
+          } catch (err) {
+            fetchErrors.set(symbol, err instanceof Error ? err.message : String(err));
+            console.error(`[Backtest] Failed to fetch ${symbol}:`, err);
+          } finally {
+            loadedCount++;
+            const progress = Math.round((loadedCount / totalSymbols) * 50);
+            if (db) {
+              await db.update(backtestSessions).set({
+                progress, progressMessage: `加载数据 (${loadedCount}/${totalSymbols})...`,
+              }).where(eq(backtestSessions.id, config.sessionId));
+            }
+          }
+        })();
+        
+        activePromises.add(fetchPromise);
+        fetchPromise.finally(() => activePromises.delete(fetchPromise));
       }
       
-      const fetchPromises = batch.map(async (symbol) => {
-        try {
-          const startTime = Date.now();
-          const candles = await getCandlesWithCache(symbol, "1d", config.startDate, config.endDate);
-          const duration = Date.now() - startTime;
-          const isCached = cachedSymbols.has(symbol);
-          console.log(`[Backtest] ${symbol}: ${candles.length} candles in ${duration}ms (cached=${isCached})`);
-          
-          if (candles.length >= 100) {
-            candleMap.set(symbol, candles);
-          } else {
-            fetchErrors.set(symbol, `only ${candles.length} candles`);
-          }
-        } catch (err) {
-          fetchErrors.set(symbol, err instanceof Error ? err.message : String(err));
-          console.error(`[Backtest] Failed to fetch ${symbol}:`, err);
-        }
-      });
-      
-      await Promise.all(fetchPromises);
+      // Wait for at least one to complete before continuing
+      if (activePromises.size > 0) {
+        await Promise.race(activePromises);
+      }
     }
     
     console.log(`[Backtest] Data fetch complete: ${candleMap.size} symbols loaded, ${fetchErrors.size} failed`);
