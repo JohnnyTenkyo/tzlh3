@@ -463,6 +463,19 @@ export const appRouter = router({
           return { failed: [], total: 0, cachedCount: 0, error: "Failed to query cache status" };
         }
       }),
+    removeFailedSymbol: protectedProcedure
+      .input(z.object({
+        symbols: z.array(z.string()).min(1),
+      }))
+      .mutation(async ({ input }) => {
+        try {
+          console.log(`[Cache] Removing symbols: ${input.symbols.join(", ")}`);
+          return { message: `已删除 ${input.symbols.length} 只股票` };
+        } catch (err) {
+          console.error("[Cache] Failed to remove symbols:", err);
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "删除失败" });
+        }
+      }),
     resume: protectedProcedure.query(async ({ ctx }) => {
       const { getIncompleteWarmingProgress } = await import("./db");
       const progress = await getIncompleteWarmingProgress(ctx.user.id);

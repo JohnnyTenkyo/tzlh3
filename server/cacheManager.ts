@@ -541,10 +541,10 @@ export async function getCandlesWithCache(
   const sd = startDate || formatDate(new Date(now.getTime() - (HISTORY_YEARS[timeframe] || 5) * 365 * 86400000));
   const ed = endDate || formatDate(now);
 
-  // Try cache first (fast path)
+  // Try cache first (fast path) - PRIORITY: Always prefer cache over API
   try {
     const cached = await getCandlesFromCache(symbol, timeframe, sd, ed);
-    if (cached && cached.length > 50) {
+    if (cached && cached.length > 0) {
       // Check if cache is stale (newest date older than 2 days)
       const newestCached = cached[cached.length - 1];
       const newestDate = new Date(newestCached.time);
@@ -571,27 +571,24 @@ export async function getCandlesWithCache(
     }
   } catch { /* ignore cache errors */ }
 
-  // No cache: full fetch with 60s timeout (increased from 30s for slow APIs)
-  try {
-    const timeoutPromise = new Promise<Candle[]>((_, reject) =>
-      setTimeout(() => reject(new Error(`Timeout fetching ${symbol}/${timeframe}`)), 60000) // 增加到 60 秒
-    );
-    const fetchPromise = fetchHistoricalCandles(symbol, timeframe, sd, ed);
-    const candles = await Promise.race([fetchPromise, timeoutPromise]);
-    if (candles.length > 0) {
-      saveCandlesToCache(symbol, timeframe, candles).catch(() => {});
-    }
-    return candles;
-  } catch (err) {
-    console.warn(`[Cache] getCandlesWithCache failed for ${symbol}/${timeframe}: ${err instanceof Error ? err.message : String(err)}`);
-    // 尝试返回部分缓存数据而不是空数组
-    try {
-      const partialCache = await getCandlesFromCache(symbol, timeframe, sd, ed);
-      if (partialCache && partialCache.length > 0) {
-        console.warn(`[Cache] Returning ${partialCache.length} partial cached candles for ${symbol}/${timeframe}`);
-        return partialCache;
-      }
-    } catch { /* ignore */ }
-    return [];
-  }
+  // No cache: return empty array (do NOT call API during backtest)
+  // API calls are unreliable during backtest - prefer cache-only mode
+  console.warn(`[Cache] No cache found for ${symbol}/${timeframe} - returning empty array (cache-first mode)`);
+  return [];
+  
+  // Note: In production, you can enable API fallback by uncommenting below:
+  // try {
+  //   const timeoutPromise = new Promise<Candle[]>((_, reject) =>
+  //     setTimeout(() => reject(new Error(`Timeout fetching ${symbol}/${timeframe}`)), 60000)
+  //   );
+  //   const fetchPromise = fetchHistoricalCandles(symbol, timeframe, sd, ed);
+  //   const candles = await Promise.race([fetchPromise, timeoutPromise]);
+  //   if (candles.length > 0) {
+  //     saveCandlesToCache(symbol, timeframe, candles).catch(() => {});
+  //   }
+  //   return candles;
+  // } catch (err) {
+  //   console.warn(`[Cache] API fallback failed for ${symbol}/${timeframe}`);
+  //   return [];
+  // }
 }

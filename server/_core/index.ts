@@ -62,6 +62,12 @@ async function startServer() {
     console.log(`Server running on http://localhost:${port}/`);
     // Initialize cache scheduler
     startCacheScheduler().catch((err: any) => console.error("[CacheScheduler] Failed to initialize:", err));
+    
+    // Keep-alive heartbeat to prevent process sleep
+    // This ensures background tasks continue running
+    setInterval(() => {
+      console.log(`[Heartbeat] Server alive at ${new Date().toISOString()}`);
+    }, 30000); // Every 30 seconds
   });
 }
 

@@ -4,13 +4,13 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { Activity, Database, RefreshCw, Zap, Clock, Play, Pause, Trash2, Plus } from "lucide-react";
+import { Activity, Database, RefreshCw, Zap, Clock, Play, Pause, Trash2, Plus, Filter, ChevronDown, ChevronUp, X } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { STOCK_POOL, SECTOR_LABELS, MARKET_CAP_TIER_LABELS, filterStocks, type StockSector, type MarketCapTier } from "@shared/stockPool";
 import { useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Filter, ChevronDown, ChevronUp, X } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
 const QUICK_WARM_GROUPS = [
   { label: "AI & 科技 TOP 20", symbols: ["NVDA", "MSFT", "AAPL", "GOOGL", "META", "AMZN", "TSLA", "AMD", "INTC", "QCOM", "AVGO", "MU", "AMAT", "LRCX", "KLAC", "TSM", "ASML", "ARM", "SMCI", "PLTR"] },
@@ -26,6 +26,7 @@ export default function CachePage() {
   const [selectedCapTiers, setSelectedCapTiers] = useState<MarketCapTier[]>([]);
   const [filteredSymbols, setFilteredSymbols] = useState<string[]>(STOCK_POOL.map(s => s.symbol));
   const [showFailedSymbols, setShowFailedSymbols] = useState(false);
+  const [selectedFailedSymbols, setSelectedFailedSymbols] = useState<Set<string>>(new Set());
 
   // Helper to update filtered symbols
   const updateFiltered = (sectors: StockSector[], tiers: MarketCapTier[]) => {
@@ -59,6 +60,15 @@ export default function CachePage() {
   const warmMutation = trpc.cache.warmDaily.useMutation({
     onSuccess: ({ message }) => { toast.success(message); utils.cache.status.invalidate(); },
     onError: (e) => toast.error(e.message),
+  });
+
+  const removeFailedSymbolMutation = trpc.cache.removeFailedSymbol.useMutation({
+    onSuccess: (data: any) => {
+      toast.success(data?.message || "删除成功");
+      utils.cache.failedSymbols.invalidate();
+      setSelectedFailedSymbols(new Set());
+    },
+    onError: (e: any) => toast.error(e?.message || "删除失败"),
   });
 
   const warming = cacheStatus?.warming as any;
@@ -143,22 +153,80 @@ export default function CachePage() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-4 md:grid-cols-8 gap-2 max-h-40 overflow-y-auto">
               {failedSymbols.map(symbol => (
-                <Badge key={symbol} variant="outline" className="text-xs justify-center">{symbol}</Badge>
+                <div key={symbol} className="relative group">
+                  <Badge variant="outline" className="text-xs justify-center cursor-pointer" onClick={() => {
+                    const newSet = new Set(selectedFailedSymbols);
+                    if (newSet.has(symbol)) {
+                      newSet.delete(symbol);
+                    } else {
+                      newSet.add(symbol);
+                    }
+                    setSelectedFailedSymbols(newSet);
+                  }}>
+                    {symbol}
+                  </Badge>
+                  {selectedFailedSymbols.has(symbol) && (
+                    <div className="absolute -top-2 -right-2 bg-red-500 rounded-full w-4 h-4 flex items-center justify-center text-white text-xs">✓</div>
+                  )}
+                </div>
               ))}
             </div>
             {isAuthenticated && (
-              <Button
-                size="sm"
-                className="w-full"
-                onClick={() => {
-                  warmMutation.mutate({ symbols: failedSymbols });
-                  setShowFailedSymbols(false);
-                }}
-                disabled={warmMutation.isPending}
-              >
-                <Zap className="h-4 w-4 mr-2" />
-                单独缓存这些股票
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => {
+                    warmMutation.mutate({ symbols: failedSymbols });
+                    setShowFailedSymbols(false);
+                  }}
+                  disabled={warmMutation.isPending}
+                >
+                  <Zap className="h-4 w-4 mr-2" />
+                  单独缓存这些股票
+                </Button>
+                {selectedFailedSymbols.size > 0 && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        className="flex-1"
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        删除已选 ({selectedFailedSymbols.size})
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>确认删除</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          将从股票池中删除已选的 {selectedFailedSymbols.size} 只股票（可能是退市或改名的股票）。此操作不可撤销。
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <div className="flex gap-1 flex-wrap max-h-20 overflow-y-auto">
+                        {Array.from(selectedFailedSymbols).map(s => (
+                          <Badge key={s} variant="secondary" className="text-xs">{s}</Badge>
+                        ))}
+                      </div>
+                      <div className="flex gap-2 justify-end">
+                        <AlertDialogCancel>取消</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => {
+                            removeFailedSymbolMutation.mutate({
+                              symbols: Array.from(selectedFailedSymbols)
+                            });
+                          }}
+                          disabled={removeFailedSymbolMutation.isPending}
+                          className="bg-red-600 hover:bg-red-700"
+                        >
+                          {removeFailedSymbolMutation.isPending ? "删除中..." : "确认删除"}
+                        </AlertDialogAction>
+                      </div>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
+              </div>
             )}
           </CardContent>
         </Card>

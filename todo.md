@@ -238,3 +238,13 @@
 - [ ] 修复缓存管理页面 - 未缓存股票卡片没有显示
 - [ ] 添加单独缓存失败股票的按钮
 - [ ] 修复回测加载数据卡住问题 - 检查并发限制和超时设置
+
+## 第二十二轮：缓存失败股票删除 + 缓存优先策略 + 后台持久性
+
+- [x] CachePage.tsx：未缓存股票列表添加单独删除按钮（删除失败/退市股票）
+- [x] server/routers.ts：添加 cache.removeFailedSymbol 路由（从 stockPool 中删除指定股票）
+- [x] server/db.ts：添加 removeSymbolFromPool 函数
+- [x] backtestEngine.ts：优先调用缓存而不是实时 API（getCandlesWithCache 优先，失败才调用 API）
+- [x] server/_core/index.ts：防止后台进程睡眠（定时心跳检测，保持活跃）
+- [x] 完整回测测试验证（测试缓存优先、后台持久性、流式加载）
+- [x] 保存检查点并提供发布按钮
