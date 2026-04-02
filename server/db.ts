@@ -575,3 +575,66 @@ export async function deleteCustomDataSource(sourceId: number) {
   
   await db.delete(customDataSources).where(eq(customDataSources.id, sourceId));
 }
+
+
+// ============================================================
+// Excluded Symbols (排除股票)
+// ============================================================
+export async function addExcludedSymbol(userId: number, symbol: string, reason?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const { excludedSymbols } = await import("../drizzle/schema");
+  
+  await db.insert(excludedSymbols).values({
+    userId,
+    symbol: symbol.toUpperCase(),
+    reason: reason || "user_request",
+  }).onDuplicateKeyUpdate({
+    set: { reason: reason || "user_request" },
+  });
+}
+
+export async function removeExcludedSymbol(userId: number, symbol: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const { excludedSymbols } = await import("../drizzle/schema");
+  const { eq, and } = await import("drizzle-orm");
+  
+  await db.delete(excludedSymbols)
+    .where(and(
+      eq(excludedSymbols.userId, userId),
+      eq(excludedSymbols.symbol, symbol.toUpperCase())
+    ));
+}
+
+export async function getExcludedSymbols(userId: number): Promise<string[]> {
+  const db = await getDb();
+  if (!db) return [];
+  
+  const { excludedSymbols } = await import("../drizzle/schema");
+  const { eq } = await import("drizzle-orm");
+  
+  const results = await db.select({ symbol: excludedSymbols.symbol })
+    .from(excludedSymbols)
+    .where(eq(excludedSymbols.userId, userId));
+  
+  return results.map(r => r.symbol);
+}
+
+export async function deleteExcludedSymbols(userId: number, symbols: string[]) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const { excludedSymbols } = await import("../drizzle/schema");
+  const { eq, and, inArray } = await import("drizzle-orm");
+  
+  const upperSymbols = symbols.map(s => s.toUpperCase());
+  
+  await db.delete(excludedSymbols)
+    .where(and(
+      eq(excludedSymbols.userId, userId),
+      inArray(excludedSymbols.symbol, upperSymbols)
+    ));
+}

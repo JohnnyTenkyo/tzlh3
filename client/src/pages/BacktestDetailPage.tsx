@@ -195,7 +195,14 @@ export default function BacktestDetailPage() {
           <div>
             <h1 className="text-xl font-bold">{session.name}</h1>
             <p className="text-xs text-muted-foreground">
-              {session.startDate} ~ {session.endDate} · {(session.symbols as string[])?.join(", ")}
+              {session.startDate} ~ {session.endDate} · 
+              {(() => {
+                const symbols = (session.symbols as string[]) || [];
+                const displayCount = 5;
+                const display = symbols.slice(0, displayCount).join(", ");
+                const remaining = symbols.length - displayCount;
+                return remaining > 0 ? `${display} 等 ${symbols.length} 只` : display;
+              })()}
             </p>
           </div>
         </div>

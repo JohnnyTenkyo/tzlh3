@@ -467,9 +467,11 @@ export const appRouter = router({
       .input(z.object({
         symbols: z.array(z.string()).min(1),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         try {
-          console.log(`[Cache] Removing symbols: ${input.symbols.join(", ")}`);
+          const { deleteExcludedSymbols } = await import("./db");
+          await deleteExcludedSymbols(ctx.user.id, input.symbols);
+          console.log(`[Cache] Removed symbols: ${input.symbols.join(", ")}`);
           return { message: `已删除 ${input.symbols.length} 只股票` };
         } catch (err) {
           console.error("[Cache] Failed to remove symbols:", err);

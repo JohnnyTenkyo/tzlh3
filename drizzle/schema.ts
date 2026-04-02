@@ -234,6 +234,23 @@ export type InsertAIConfig = typeof aiConfigs.$inferInsert;
 
 
 // ============================================================
+// Excluded Symbols (排除股票 - 删除失败/退市股票)
+// ============================================================
+export const excludedSymbols = mysqlTable("excluded_symbols", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  symbol: varchar("symbol", { length: 20 }).notNull(),
+  reason: varchar("reason", { length: 100 }), // "delisted", "renamed", "user_request", etc.
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("idx_user_symbol").on(table.userId, table.symbol),
+  index("idx_user_id").on(table.userId),
+]);
+
+export type ExcludedSymbol = typeof excludedSymbols.$inferSelect;
+export type InsertExcludedSymbol = typeof excludedSymbols.$inferInsert;
+
+// ============================================================
 // Custom Data Sources (用户自定义数据源配置)
 // ============================================================
 export const customDataSources = mysqlTable("custom_data_sources", {

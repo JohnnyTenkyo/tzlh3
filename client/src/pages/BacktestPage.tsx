@@ -735,6 +735,16 @@ export default function BacktestPage() {
 
   // Strategy params with null support
   const [strategyParams, setStrategyParams] = useState<StrategyParamState>({ ...DEFAULT_PARAMS["standard"] });
+  // Multi-strategy independent params
+  const [compareStrategyParams, setCompareStrategyParams] = useState<Record<StrategyKey, StrategyParamState>>({
+    standard: { ...DEFAULT_PARAMS["standard"] },
+    aggressive: { ...DEFAULT_PARAMS["aggressive"] },
+    ladder_cd_combo: { ...DEFAULT_PARAMS["ladder_cd_combo"] },
+    mean_reversion: { ...DEFAULT_PARAMS["mean_reversion"] },
+    macd_volume: { ...DEFAULT_PARAMS["macd_volume"] },
+    bollinger_squeeze: { ...DEFAULT_PARAMS["bollinger_squeeze"] },
+    gemini_ai: { ...DEFAULT_PARAMS["gemini_ai"] },
+  });
 
   // AI Config selection
   const [selectedAIConfigId, setSelectedAIConfigId] = useState<number | null>(null);
@@ -795,6 +805,13 @@ export default function BacktestPage() {
 
   const handleParamChange = (key: string, value: number | null) => {
     setStrategyParams(prev => ({ ...prev, [key]: value }));
+  };
+
+  const handleCompareParamChange = (strategy: StrategyKey, key: string, value: number | null) => {
+    setCompareStrategyParams(prev => ({
+      ...prev,
+      [strategy]: { ...prev[strategy], [key]: value }
+    }));
   };
 
   // Convert UI params (percentages as integers) to backend params (decimals)
@@ -1053,20 +1070,42 @@ export default function BacktestPage() {
             {/* ── Tab 2: Param Tuning ── */}
             <TabsContent value="params" className="mt-4">
               <div className="space-y-4">
-                <Card className="border-border/50">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm flex items-center gap-2">
-                      <Settings2 className="w-4 h-4 text-primary" />
-                      风险控制参数
-                    </CardTitle>
-                    <CardDescription className="text-xs">
-                      设为"不限"表示按策略信号出场，不设硬性止盈止损位。移动止损从盈利峰值回撤触发。
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <RiskParamPanel params={strategyParams} onChange={handleParamChange} />
-                  </CardContent>
-                </Card>
+                {compareMode ? (
+                  <div className="space-y-3">
+                    {compareStrategies.map(strategyKey => (
+                      <Card key={strategyKey} className="border-border/50">
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-sm flex items-center gap-2">
+                            <Settings2 className="w-4 h-4" style={{ color: STRATEGY_COLORS[strategyKey] }} />
+                            {strategies.find(s => s.key === strategyKey)?.name || strategyKey}
+                          </CardTitle>
+                          <CardDescription className="text-xs">独立参数配置</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <RiskParamPanel 
+                            params={compareStrategyParams[strategyKey]} 
+                            onChange={(key, value) => handleCompareParamChange(strategyKey, key, value)} 
+                          />
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                ) : (
+                  <Card className="border-border/50">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <Settings2 className="w-4 h-4 text-primary" />
+                        风险控制参数
+                      </CardTitle>
+                      <CardDescription className="text-xs">
+                        设为"不限"表示按策略信号出场，不设硬性止盈止损位。移动止损从盈利峰值回撤触发。
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <RiskParamPanel params={strategyParams} onChange={handleParamChange} />
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* Strategy-specific extra params */}
                 {(EXTRA_PARAM_DEFS[strategy] || []).length > 0 && (
