@@ -264,3 +264,26 @@
 - [x] UI 优化 - 回测报告标题下的股票池缩略显示
 - [x] 完整测试验证
 - [x] 保存检查点并提供发布按钮
+
+
+## 第二十四轮：交易明细增强 + 月度收益热力图 + 新策略集成
+
+- [ ] BacktestDetailPage.tsx：交易明细表格添加排序功能（按日期、收益、手续费等排序）
+- [ ] BacktestDetailPage.tsx：交易明细表格添加筛选功能（按交易类型、收益/亏损、日期范围筛选）
+- [ ] BacktestDetailPage.tsx：交易明细表格支持 Excel 导出（包含所有列数据）
+- [ ] BacktestDetailPage.tsx：添加月度收益热力图（按月份统计收益率、胜率、最大回撤）
+- [ ] server/backtestEngine.ts：添加 VAMR 策略（波动率调整后的动量反转：QQQ 大盘过滤+RS90 动量选股+RSI(4)超卖买入+ATR 动态止损）
+- [ ] server/backtestEngine.ts：添加 RAVTS 策略（市场状态调整趋势得分：SPY 大盘过滤+EMA 斜率趋势+量能确认+ATR 动态止损止盈）
+- [ ] server/backtestEngine.ts：添加 RSI 反转策略（RSI 超卖反转：RSI(14)超卖+价格确认+ATR 止损）
+- [ ] server/backtestEngine.ts：添加 MACD 背离策略（MACD 背离交易：价格新低但 MACD 不新低+信号线交叉+ATR 止损）
+- [ ] shared/const.ts：添加 4 个新策略到 STRATEGY_CONFIGS
+- [ ] BacktestPage.tsx：策略选择面板显示 4 个新策略
+- [ ] 完整测试验证（测试新策略、排序、筛选、热力图、Excel 导出）
+- [ ] 保存检查点并提供发布按钮
+
+
+## Bug 修复：缓存删除失败
+
+- [x] 调查缓存删除失败原因（检查 removeFailedSymbol API 实现）
+- [x] 修复删除逻辑（可能是排除股票表未正确创建或 API 响应错误）
+- [x] 测试缓存删除功能

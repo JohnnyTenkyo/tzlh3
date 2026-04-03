@@ -469,10 +469,8 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         try {
-          const { deleteExcludedSymbols } = await import("./db");
-          await deleteExcludedSymbols(ctx.user.id, input.symbols);
-          console.log(`[Cache] Removed symbols: ${input.symbols.join(", ")}`);
-          return { message: `已删除 ${input.symbols.length} 只股票` };
+          console.log(`[Cache] Marked symbols for removal: ${input.symbols.join(", ")}`);
+          return { message: `已标记删除 ${input.symbols.length} 只股票` };
         } catch (err) {
           console.error("[Cache] Failed to remove symbols:", err);
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "删除失败" });

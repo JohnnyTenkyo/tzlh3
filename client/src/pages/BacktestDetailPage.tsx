@@ -76,6 +76,12 @@ export default function BacktestDetailPage() {
   const [isPolling, setIsPolling] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressMessage, setProgressMessage] = useState("");
+  
+  // Trade sorting and filtering
+  const [sortBy, setSortBy] = useState<'date' | 'pnl' | 'pnlPct' | 'symbol'>('date');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [filterType, setFilterType] = useState<'all' | 'profit' | 'loss'>('all');
+  const [filterSymbol, setFilterSymbol] = useState<string>('');
 
   const { data, isLoading, error } = trpc.backtest.detail.useQuery({ id }, { enabled: !!id });
   const { data: progressData } = trpc.backtest.progress.useQuery({ id }, {
@@ -396,6 +402,23 @@ export default function BacktestDetailPage() {
       <Card className="bg-card border-border">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium">交易记录 ({trades.length} 笔)</CardTitle>
+          <div className="flex gap-2 mt-3 flex-wrap">
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)} className="text-xs px-2 py-1 rounded border border-border bg-background">
+              <option value="date">按日期排序</option>
+              <option value="pnl">按盈亏排序</option>
+              <option value="pnlPct">按盈亏%排序</option>
+              <option value="symbol">按股票排序</option>
+            </select>
+            <button onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')} className="text-xs px-2 py-1 rounded border border-border bg-background hover:bg-muted">
+              {sortOrder === 'asc' ? '↑' : '↓'}
+            </button>
+            <select value={filterType} onChange={(e) => setFilterType(e.target.value as any)} className="text-xs px-2 py-1 rounded border border-border bg-background">
+              <option value="all">全部交易</option>
+              <option value="profit">盈利交易</option>
+              <option value="loss">亏损交易</option>
+            </select>
+            <input type="text" placeholder="搜索股票" value={filterSymbol} onChange={(e) => setFilterSymbol(e.target.value.toUpperCase())} className="text-xs px-2 py-1 rounded border border-border bg-background" />
+          </div>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -417,10 +440,27 @@ export default function BacktestDetailPage() {
                 </tr>
               </thead>
               <tbody>
-                {trades.slice(0, 200).map(trade => {
-                  const pnl = Number(trade.pnl);
-                  const pnlPct = Number(trade.pnlPct);
-                  return (
+                {(() => {
+                  let filtered = trades.filter(t => {
+                    if (filterType === 'profit' && Number(t.pnl) <= 0) return false;
+                    if (filterType === 'loss' && Number(t.pnl) >= 0) return false;
+                    if (filterSymbol && !t.symbol.includes(filterSymbol)) return false;
+                    return true;
+                  });
+                  
+                  filtered.sort((a, b) => {
+                    let aVal: any = a[sortBy as keyof typeof a];
+                    let bVal: any = b[sortBy as keyof typeof b];
+                    if (sortBy === 'date') { aVal = Number(a.tradeTime); bVal = Number(b.tradeTime); }
+                    if (sortBy === 'pnl') { aVal = Number(a.pnl); bVal = Number(b.pnl); }
+                    if (sortBy === 'pnlPct') { aVal = Number(a.pnlPct); bVal = Number(b.pnlPct); }
+                    return sortOrder === 'asc' ? (aVal > bVal ? 1 : -1) : (aVal < bVal ? 1 : -1);
+                  });
+                  
+                  return filtered.slice(0, 200).map(trade => {
+                    const pnl = Number(trade.pnl);
+                    const pnlPct = Number(trade.pnlPct);
+                    return (
                     <tr key={trade.id} className="border-b border-border/50 hover:bg-muted/30">
                       <td className="py-1.5 pr-3 text-muted-foreground">
                         {new Date(Number(trade.tradeTime)).toLocaleDateString("zh-CN")}
@@ -475,8 +515,9 @@ export default function BacktestDetailPage() {
                         {pnlPct !== 0 ? `${pnlPct >= 0 ? "+" : ""}${(pnlPct * 100).toFixed(1)}%` : "-"}
                       </td>
                     </tr>
-                  );
-                })}
+                    );
+                  });
+                })()}
               </tbody>
             </table>
             {trades.length > 200 && (
