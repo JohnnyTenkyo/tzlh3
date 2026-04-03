@@ -15,7 +15,7 @@ import { getDb } from "./db";
 import { backtestSessions, backtestTrades, cacheMetadata } from "../drizzle/schema";
 import { eq, sql } from "drizzle-orm";
 
-export type StrategyType = "standard" | "aggressive" | "ladder_cd_combo" | "mean_reversion" | "macd_volume" | "bollinger_squeeze";
+export type StrategyType = "standard" | "aggressive" | "ladder_cd_combo" | "mean_reversion" | "macd_volume" | "bollinger_squeeze" | "vamr" | "ravts" | "rsi_reversal" | "macd_divergence";
 
 export interface StrategyParams {
   // Common params
@@ -45,6 +45,18 @@ export interface StrategyParams {
   bbPeriod?: number;          // Bollinger period (default 20)
   bbMultiplier?: number;      // Bollinger multiplier (default 2)
   squeezeThreshold?: number;  // bandwidth threshold for squeeze
+  // VAMR (Volatility Adjusted Momentum Reversal)
+  volatilityPeriod?: number;  // ATR period for volatility (default 14)
+  momentumPeriod?: number;    // momentum lookback period (default 20)
+  rsi4Threshold?: number;     // RSI(4) oversold threshold (default 30)
+  // RAVTS (Regime Adjusted Volatility Trend Score)
+  emaPeriod?: number;         // EMA period for trend (default 20)
+  volumeConfirmPct?: number;  // volume confirmation multiplier (default 1.2)
+  // RSI Reversal
+  rsiPeriod?: number;         // RSI period (default 14)
+  rsiReversal?: number;       // RSI reversal threshold (default 35)
+  // MACD Divergence
+  macdDivergencePeriod?: number; // lookback period for divergence (default 5)
 }
 
 export const STRATEGY_DEFAULTS: Record<StrategyType, StrategyParams> = {
@@ -72,6 +84,22 @@ export const STRATEGY_DEFAULTS: Record<StrategyType, StrategyParams> = {
     stopLossPct: 0.06, takeProfitPct: 0.12, trailingStopPct: 0.04,
     maxHoldingDays: 15, bbPeriod: 20, bbMultiplier: 2, squeezeThreshold: 0.04,
   },
+  vamr: {
+    stopLossPct: 0.06, takeProfitPct: 0.18, trailingStopPct: 0.05,
+    maxHoldingDays: 30, volatilityPeriod: 14, momentumPeriod: 20, rsi4Threshold: 30,
+  },
+  ravts: {
+    stopLossPct: 0.07, takeProfitPct: 0.20, trailingStopPct: 0.06,
+    maxHoldingDays: 0, emaPeriod: 20, volumeConfirmPct: 1.2,
+  },
+  rsi_reversal: {
+    stopLossPct: 0.05, takeProfitPct: 0.15, trailingStopPct: 0.04,
+    maxHoldingDays: 20, rsiPeriod: 14, rsiReversal: 35,
+  },
+  macd_divergence: {
+    stopLossPct: 0.06, takeProfitPct: 0.16, trailingStopPct: 0.05,
+    maxHoldingDays: 25, macdDivergencePeriod: 5, macdFast: 12, macdSlow: 26, macdSignal: 9,
+  },
 };
 
 export const STRATEGY_INFO: Record<StrategyType, { name: string; description: string }> = {
@@ -98,6 +126,22 @@ export const STRATEGY_INFO: Record<StrategyType, { name: string; description: st
   bollinger_squeeze: {
     name: "布林带收缩突破策略",
     description: "利用布林带收缩（带宽缩窄）识别即将爆发的行情。当布林带宽度低于阈值（收缩期）后价格向上突破中轨时买入，配合CD指标确认方向。适合捕捉盘整后的突破行情，持仓周期较短，胜率较高。",
+  },
+  vamr: {
+    name: "VAMR (波动率调整动量反转)",
+    description: "结合波动率、动量和RSI的高胜率反转策略。QQQ大盘过滤 + RS90动量选股 + RSI(4)超卖买入 + ATR动态止损。适合捕捉超卖反弹，胜率较高。",
+  },
+  ravts: {
+    name: "RAVTS (市场状态调整趋势)",
+    description: "市场状态调整的趋势跟踪策略。SPY大盘过滤 + EMA斜率趋势 + 量能确认 + ATR动态止损止盈。根据市场状态动态调整参数，适合趋势行情。",
+  },
+  rsi_reversal: {
+    name: "RSI反转策略",
+    description: "基于RSI指标的反转策略。当RSI低于设定阈值（超卖）时买入，高于设定阈值（超买）时卖出。适合震荡市场，持仓周期短，胜率较高。",
+  },
+  macd_divergence: {
+    name: "MACD背离策略",
+    description: "利用MACD指标背离识别趋势反转的策略。当价格创新高但MACD未创新高时识别看跌背离，反之识别看涨背离。配合动态止损锁定利润。",
   },
 };
 

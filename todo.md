@@ -287,3 +287,17 @@
 - [x] 调查缓存删除失败原因（检查 removeFailedSymbol API 实现）
 - [x] 修复删除逻辑（可能是排除股票表未正确创建或 API 响应错误）
 - [x] 测试缓存删除功能
+
+
+## 第二十五轮：新策略集成 + 月度热力图 + Excel导出增强
+
+- [x] server/backtestEngine.ts：添加 VAMR 策略（波动率调整动量反转）
+- [x] server/backtestEngine.ts：添加 RAVTS 策略（市场状态调整趋势）
+- [x] server/backtestEngine.ts：添加 RSI反转策略
+- [x] server/backtestEngine.ts：添加 MACD背离策略
+- [ ] client/src/pages/BacktestDetailPage.tsx：添加月度收益热力图组件
+- [ ] server/routers.ts：添加月度统计 API（收益率、胜率、最大回撤）
+- [ ] client/src/pages/BacktestDetailPage.tsx：添加 Excel 导出功能
+- [ ] server/routers.ts：实现 Excel 导出 API（交易记录、月度统计、策略参数）
+- [ ] 完整测试验证（测试新策略、热力图、Excel导出）
+- [ ] 保存检查点并提供发布按钮
