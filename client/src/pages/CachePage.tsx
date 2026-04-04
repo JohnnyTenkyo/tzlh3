@@ -48,7 +48,7 @@ export default function CachePage() {
 
   const { data: failedData, refetch: refetchFailed } = trpc.cache.failedSymbols.useQuery(
     undefined,
-    { enabled: false }
+    { refetchInterval: 5000 }
   );
 
   // 添加单独的查询来获取缓存统计数据（总股票数、已缓存数）
@@ -81,7 +81,7 @@ export default function CachePage() {
     return acc;
   }, {});
 
-  const failedSymbols = failedData?.failed || [];
+  const failedSymbols = failedData?.failed || cacheStatsData?.failed || [];
   const cachedCount = failedData?.cachedCount || cacheStatsData?.cachedCount || 0;
   const totalCount = failedData?.total || cacheStatsData?.total || 0;
 

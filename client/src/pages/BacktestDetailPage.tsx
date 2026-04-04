@@ -144,7 +144,7 @@ export default function BacktestDetailPage() {
   if (isLoading) return <div className="text-center py-12 text-muted-foreground">加载中...</div>;
   if (error || !data) return <div className="text-center py-12 text-muted-foreground">回测记录不存在或无权访问</div>;
 
-  const { session, trades } = data;
+  const { session, trades, monthlyStats, summary } = data;
   const totalReturn = Number(session.totalReturnPct) || 0;
   const winRate = Number(session.winRate) || 0;
   const maxDrawdown = Number(session.maxDrawdown) || 0;
@@ -167,6 +167,18 @@ export default function BacktestDetailPage() {
   try {
     if (session.aiAnalysis) aiAnalysis = JSON.parse(session.aiAnalysis as string);
   } catch {}
+
+  const monthlyArray = monthlyStats ? Object.entries(monthlyStats).map(([month, stats]: any) => ({
+    month,
+    profit: stats.profit || 0,
+    winRate: stats.winRate || 0,
+    trades: stats.trades || 0,
+    wins: stats.wins || 0,
+  })) : [];
+
+  const totalProfit = summary?.totalProfit || 0;
+  const totalWins = summary?.winCount || 0;
+  const totalTradesCount = summary?.totalTrades || 0;
 
   // Compute benchmark returns from chart data for display
   const qqqReturn = chartData.length >= 2
@@ -251,6 +263,44 @@ export default function BacktestDetailPage() {
           </Card>
         ))}
       </div>
+
+      {/* Monthly Heatmap */}
+      {monthlyArray.length > 0 && (
+        <Card className="bg-card border-border">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-blue-400" /> 月度收益热力图
+            </CardTitle>
+            <div className="flex items-center gap-4 text-xs mt-2">
+              <span className={`font-medium ${totalProfit >= 0 ? "text-gain" : "text-loss"}`}>
+                总盈亏: {totalProfit >= 0 ? "+" : ""}{totalProfit.toFixed(2)}
+              </span>
+              <span className="font-medium text-muted-foreground">
+                胜率: {totalTradesCount > 0 ? ((totalWins / totalTradesCount) * 100).toFixed(1) : 0}% ({totalWins}/{totalTradesCount})
+              </span>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
+              {monthlyArray.map((m: any) => {
+                const profitColor = m.profit >= 0 ? "bg-green-500/20 border-green-500/30" : "bg-red-500/20 border-red-500/30";
+                const textColor = m.profit >= 0 ? "text-gain" : "text-loss";
+                return (
+                  <div key={m.month} className={`border rounded-lg p-2 text-center ${profitColor}`}>
+                    <div className="text-xs text-muted-foreground mb-1">{m.month}</div>
+                    <div className={`text-xs font-bold ${textColor} mb-0.5`}>
+                      {m.profit >= 0 ? "+" : ""}{m.profit.toFixed(0)}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">
+                      {m.wins}/{m.trades}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Equity Curve Chart */}
       {chartData.length > 1 && (
