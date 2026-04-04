@@ -835,7 +835,7 @@ export default function BacktestPage() {
       if (compareStrategies.length < 2) { toast.error("请选择至少2个策略进行对比"); return; }
       compareStrategiesMutation.mutate({
         name, strategies: compareStrategies, symbols: selectedSymbols,
-        startDate, endDate, initialCapital, maxPositionPct, strategyParams: params as any,
+        startDate, endDate, initialCapital, maxPositionPct, strategyParams: compareStrategyParams as any,
       });
     } else {
       createMutation.mutate({

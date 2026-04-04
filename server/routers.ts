@@ -18,6 +18,9 @@ import { SignJWT } from "jose";
 import { ENV } from "./_core/env";
 import * as XLSX from "xlsx";
 
+// Global set to track removed failed symbols
+const removedFailedSymbols = new Set<string>();
+
 function getJwtSecret() {
   return new TextEncoder().encode(ENV.cookieSecret);
 }
@@ -451,7 +454,10 @@ export const appRouter = router({
           const allSymbols = STOCK_POOL.map(s => s.symbol);
           
           // Find failed/uncached symbols
-          const failed = allSymbols.filter(s => !cachedSet.has(s));
+          let failed = allSymbols.filter(s => !cachedSet.has(s));
+          
+          // Filter out removed symbols
+          failed = failed.filter(s => !removedFailedSymbols.has(s));
           
           return { 
             failed, 
@@ -469,8 +475,9 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         try {
-          console.log(`[Cache] Marked symbols for removal: ${input.symbols.join(", ")}`);
-          return { message: `已标记删除 ${input.symbols.length} 只股票` };
+          input.symbols.forEach(s => removedFailedSymbols.add(s));
+          console.log(`[Cache] Removed symbols from failed list: ${input.symbols.join(", ")}`);
+          return { message: `已删除 ${input.symbols.length} 只股票` };
         } catch (err) {
           console.error("[Cache] Failed to remove symbols:", err);
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "删除失败" });
