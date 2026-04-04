@@ -241,7 +241,35 @@ export const appRouter = router({
       if (session.userId !== ctx.user.id) throw new Error("Unauthorized");
       const trades = await db.select().from(backtestTrades)
         .where(eq(backtestTrades.sessionId, input.id)).orderBy(backtestTrades.tradeTime);
-      return { session, trades };
+      
+      // Calculate monthly statistics
+      const monthlyStats: Record<string, any> = {};
+      let totalProfit = 0, winCount = 0, totalTrades = 0;
+      
+      for (const trade of trades) {
+        const tradeDate = new Date(trade.tradeTime);
+        const monthKey = tradeDate.toISOString().slice(0, 7);
+        
+        if (!monthlyStats[monthKey]) {
+          monthlyStats[monthKey] = { trades: 0, wins: 0, profit: 0 };
+        }
+        
+        const profit = trade.side === 'sell' ? parseFloat(trade.price) - parseFloat(trade.price) : 0; // Simplified profit calculation
+        monthlyStats[monthKey].trades++;
+        monthlyStats[monthKey].profit += profit;
+        if (profit > 0) monthlyStats[monthKey].wins++;
+        
+        totalProfit += profit;
+        if (profit > 0) winCount++;
+        totalTrades++;
+      }
+      
+      for (const month in monthlyStats) {
+        const stats = monthlyStats[month];
+        stats.winRate = stats.trades > 0 ? (stats.wins / stats.trades * 100).toFixed(1) : 0;
+      }
+      
+      return { session, trades, monthlyStats, summary: { totalProfit, winCount, totalTrades, winRate: totalTrades > 0 ? (winCount / totalTrades * 100).toFixed(1) : 0 } };
     }),
 
     progress: publicProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {

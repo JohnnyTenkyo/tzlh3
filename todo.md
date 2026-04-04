@@ -315,3 +315,23 @@
 - [ ] 策略性能对标表 - 新策略与现有策略的性能对比
 - [ ] 完整测试验证
 - [ ] 保存检查点并提供发布按钮
+
+
+## 第二十七轮：月度热力图 + Excel导出 + 策略对标
+
+### 月度收益热力图
+- [x] server/routers.ts：在 detail 路由中添加月度统计计算
+- [ ] client/src/pages/BacktestDetailPage.tsx：添加月度热力图组件（用颜色表示表现）
+
+### Excel 导出增强
+- [ ] server/routers.ts：添加 exportBacktestExcel API（交易记录、月度统计、策略参数）
+- [ ] client/src/pages/BacktestDetailPage.tsx：添加 Excel 导出按钮
+
+### 策略性能对标
+- [ ] client/src/pages/BacktestPage.tsx：在对比模式中添加策略性能对标表
+- [ ] 显示新旧策略的收益率、胜率、最大回撤对比
+
+### 完整测试
+- [ ] 测试月度热力图显示
+- [ ] 测试 Excel 导出功能
+- [ ] 测试策略性能对标表
