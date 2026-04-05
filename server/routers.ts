@@ -247,17 +247,24 @@ export const appRouter = router({
       let totalProfit = 0, winCount = 0, totalTrades = 0;
       
       for (const trade of trades) {
-        const tradeDate = new Date(trade.tradeTime);
+        // 只统计卖出交易的利润（买入交易的 pnl 为 0）
+        if (trade.side !== 'sell') continue;
+        
+        const tradeDate = new Date(Number(trade.tradeTime));
         const monthKey = tradeDate.toISOString().slice(0, 7);
         
         if (!monthlyStats[monthKey]) {
-          monthlyStats[monthKey] = { trades: 0, wins: 0, profit: 0 };
+          monthlyStats[monthKey] = { trades: 0, wins: 0, losses: 0, profit: 0, winRate: 0 };
         }
         
-        const profit = trade.side === 'sell' ? parseFloat(trade.price) - parseFloat(trade.price) : 0; // Simplified profit calculation
+        const profit = Number(trade.pnl) || 0;
         monthlyStats[monthKey].trades++;
         monthlyStats[monthKey].profit += profit;
-        if (profit > 0) monthlyStats[monthKey].wins++;
+        if (profit > 0) {
+          monthlyStats[monthKey].wins++;
+        } else if (profit < 0) {
+          monthlyStats[monthKey].losses++;
+        }
         
         totalProfit += profit;
         if (profit > 0) winCount++;

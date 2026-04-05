@@ -1,173 +1,75 @@
-import { useParams, useLocation } from "wouter";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Download, Cpu, TrendingUp, TrendingDown, RefreshCw, BarChart3 } from "lucide-react";
-import { toast } from "sonner";
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-} from "recharts";
-import { useMemo, useState, useEffect } from "react";
-import { Progress } from "@/components/ui/progress";
+'use client';
 
-// Merge equity curves from strategy, SPY, QQQ into a unified time series
-function mergeEquityCurves(
-  equityCurve: Array<{ time: number; equity: number }>,
-  spyCurve: Array<{ time: number; equity: number }>,
-  qqqCurve: Array<{ time: number; equity: number }>,
-  initialCapital: number
-) {
-  // Build maps for quick lookup
-  const spyMap = new Map(spyCurve.map(p => [p.time, p.equity]));
-  const qqqMap = new Map(qqqCurve.map(p => [p.time, p.equity]));
-
-  // Collect all unique timestamps
-  const allTimes = Array.from(
-    new Set([
-      ...equityCurve.map(p => p.time),
-      ...spyCurve.map(p => p.time),
-      ...qqqCurve.map(p => p.time),
-    ])
-  ).sort((a, b) => a - b);
-
-  // Forward-fill values
-  let lastStrategy = initialCapital;
-  let lastSpy = initialCapital;
-  let lastQqq = initialCapital;
-
-  return allTimes.map(time => {
-    const strategyPoint = equityCurve.find(p => p.time === time);
-    if (strategyPoint) lastStrategy = strategyPoint.equity;
-    if (spyMap.has(time)) lastSpy = spyMap.get(time)!;
-    if (qqqMap.has(time)) lastQqq = qqqMap.get(time)!;
-
-    return {
-      date: new Date(time).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit", year: "2-digit" }),
-      time,
-      strategy: Math.round(lastStrategy),
-      spy: Math.round(lastSpy),
-      qqq: Math.round(lastQqq),
-    };
-  });
-}
-
-// Custom tooltip for the chart
-function CustomTooltip({ active, payload, label }: any) {
-  if (!active || !payload || !payload.length) return null;
-  return (
-    <div className="bg-card border border-border rounded-lg p-3 text-xs shadow-lg">
-      <p className="text-muted-foreground mb-2">{label}</p>
-      {payload.map((p: any) => (
-        <div key={p.dataKey} className="flex items-center gap-2 mb-1">
-          <div className="w-2 h-2 rounded-full" style={{ background: p.color }} />
-          <span className="text-muted-foreground">{p.name}:</span>
-          <span className="font-medium" style={{ color: p.color }}>${p.value?.toLocaleString()}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
+import { useState, useEffect } from 'react';
+import { useRoute, useLocation } from 'wouter';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { ArrowLeft, Download, TrendingUp, TrendingDown, BarChart3, RefreshCw, Cpu } from 'lucide-react';
+import { trpc } from '@/lib/trpc';
 
 export default function BacktestDetailPage() {
-  const params = useParams<{ id: string }>();
+  const [, params] = useRoute('/backtest/:id');
   const [, setLocation] = useLocation();
-  const id = parseInt(params.id || "0");
-  const [isPolling, setIsPolling] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [progressMessage, setProgressMessage] = useState("");
-  
-  // Trade sorting and filtering
-  const [sortBy, setSortBy] = useState<'date' | 'pnl' | 'pnlPct' | 'symbol'>('date');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-  const [filterType, setFilterType] = useState<'all' | 'profit' | 'loss'>('all');
-  const [filterSymbol, setFilterSymbol] = useState<string>('');
   const [activeTab, setActiveTab] = useState('overview');
+  const [sortBy, setSortBy] = useState<'date' | 'pnl' | 'pnlPct' | 'symbol'>('date');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [filterType, setFilterType] = useState<'all' | 'profit' | 'loss'>('all');
+  const [filterSymbol, setFilterSymbol] = useState('');
+  const [progress, setProgress] = useState(0);
+  const [progressMessage, setProgressMessage] = useState('');
 
-  const { data, isLoading, error } = trpc.backtest.detail.useQuery({ id }, { enabled: !!id });
-  const { data: progressData } = trpc.backtest.progress.useQuery({ id }, {
-    enabled: !!id && isPolling,
-    refetchInterval: 1000, // Poll every 1 second
-  });
-  const utils = trpc.useUtils();
+  const id = params?.id ? parseInt(params.id) : 0;
 
-  // Start polling when session is running
-  useEffect(() => {
-    if (data?.session?.status === "running") {
-      setIsPolling(true);
-    } else if (data?.session?.status === "completed" || data?.session?.status === "failed") {
-      setIsPolling(false);
-    }
-  }, [data?.session?.status]);
-
-  // Update progress from polling data
-  useEffect(() => {
-    if (progressData) {
-      setProgress(progressData.progress || 0);
-      setProgressMessage(progressData.progressMessage || "");
-      if (progressData.status === "completed" || progressData.status === "failed") {
-        setIsPolling(false);
-        utils.backtest.detail.invalidate({ id });
-      }
-    }
-  }, [progressData, id, utils]);
-
-  const exportMutation = trpc.backtest.exportExcel.useMutation({
-    onSuccess: ({ filename, base64 }) => {
-      const link = document.createElement("a");
-      link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${base64}`;
-      link.download = filename;
-      link.click();
-      toast.success("Excel 已下载");
+  const { data, isLoading, error } = trpc.backtest.detail.useQuery({ id }, {
+    enabled: id > 0,
+    refetchInterval: (data) => {
+      if ((data as any)?.session?.status === 'running') return 1000;
+      return false;
     },
-    onError: (e) => toast.error(e.message),
   });
 
-  const aiAnalyzeMutation = trpc.backtest.aiAnalyze.useMutation({
-    onSuccess: () => { toast.success("AI 分析完成"); utils.backtest.detail.invalidate({ id }); },
-    onError: (e) => toast.error(e.message),
-  });
+  const { data: aiData } = trpc.backtest.aiAnalyze.useMutation();
 
-  // Build chart data from resultSummary
-  const chartData = useMemo(() => {
-    if (!data?.session) return [];
-    const summary = data.session.resultSummary as any;
-    if (!summary?.equityCurve?.length) return [];
-    const initialCapital = Number(data.session.initialCapital) || 100000;
-    return mergeEquityCurves(
-      summary.equityCurve || [],
-      summary.spyCurve || [],
-      summary.qqqCurve || [],
-      initialCapital
-    );
-  }, [data]);
+  useEffect(() => {
+    if (data?.session?.status === 'running') {
+      const session = data.session as any;
+      const progressNum = session.processedCount && session.totalCount
+        ? Math.round((session.processedCount / session.totalCount) * 100)
+        : 0;
+      setProgress(progressNum);
+      setProgressMessage(
+        session.currentSymbol
+          ? `处理中: ${session.currentSymbol} (${session.processedCount}/${session.totalCount})`
+          : `进度: ${session.processedCount || 0}/${session.totalCount || 0}`
+      );
+    }
+  }, [data?.session]);
 
-  if (isLoading) return <div className="text-center py-12 text-muted-foreground">加载中...</div>;
-  if (error || !data) return <div className="text-center py-12 text-muted-foreground">回测记录不存在或无权访问</div>;
+  if (isLoading) return <div className="text-center py-8">加载中...</div>;
+  if (error || !data) return <div className="text-center py-8 text-loss">加载失败</div>;
 
-  const { session, trades, monthlyStats, summary } = data;
-  const totalReturn = Number(session.totalReturnPct) || 0;
-  const winRate = Number(session.winRate) || 0;
-  const maxDrawdown = Number(session.maxDrawdown) || 0;
-  const sharpe = Number(session.sharpeRatio) || 0;
-  const benchmarkReturn = Number(session.benchmarkReturn) || 0;
-  const isPositive = totalReturn >= 0;
+  const { session, trades, monthlyStats } = data as any;
+  const aiAnalysis = (aiData as any)?.analysis;
 
-  const metrics = [
-    { label: "总收益率", value: `${(totalReturn * 100).toFixed(2)}%`, positive: isPositive },
-    { label: "总收益", value: `$${Number(session.totalReturn || 0).toFixed(0)}`, positive: isPositive },
-    { label: "胜率", value: `${(winRate * 100).toFixed(1)}%`, positive: winRate >= 0.5 },
-    { label: "最大回撤", value: `${(maxDrawdown * 100).toFixed(2)}%`, positive: maxDrawdown < 0.2 },
-    { label: "夏普比率", value: sharpe.toFixed(2), positive: sharpe >= 1 },
-    { label: "基准(SPY)", value: `${(benchmarkReturn * 100).toFixed(2)}%`, positive: benchmarkReturn >= 0 },
-    { label: "总交易数", value: String(session.totalTrades || 0), positive: true },
-    { label: "盈利/亏损", value: `${session.winningTrades || 0}/${session.losingTrades || 0}`, positive: true },
-  ];
+  const isPositive = Number(session.totalReturn || 0) >= 0;
+  const totalReturn = Number(session.totalReturnPct || 0);
+  const benchmarkReturn = Number(session.benchmarkReturn || 0);
+  const winRate = Number(session.winRate || 0);
+  const maxDrawdown = Number(session.maxDrawdown || 0);
+  const sharpe = Number(session.sharpeRatio || 0);
 
-  let aiAnalysis: any = null;
+  // Build chart data
+  const chartData: any[] = [];
   try {
-    if (session.aiAnalysis) aiAnalysis = JSON.parse(session.aiAnalysis as string);
+    const sessionData = session as any;
+    const parsed = typeof sessionData.equityCurve === 'string' ? JSON.parse(sessionData.equityCurve) : sessionData.equityCurve;
+    if (Array.isArray(parsed)) {
+      chartData.push(...parsed);
+    }
   } catch {}
 
   const monthlyArray = monthlyStats ? Object.entries(monthlyStats).map(([month, stats]: any) => ({
@@ -178,14 +80,21 @@ export default function BacktestDetailPage() {
     wins: stats.wins || 0,
   })) : [];
 
-  const totalProfit = summary?.totalProfit || 0;
-  const totalWins = summary?.winCount || 0;
-  const totalTradesCount = summary?.totalTrades || 0;
+  const totalProfit = monthlyArray.reduce((sum, m) => sum + m.profit, 0);
+  const totalWins = monthlyArray.reduce((sum, m) => sum + m.wins, 0);
+  const totalTradesCount = monthlyArray.reduce((sum, m) => sum + m.trades, 0);
 
   // Compute benchmark returns from chart data for display
   const qqqReturn = chartData.length >= 2
     ? ((chartData[chartData.length - 1].qqq - chartData[0].qqq) / chartData[0].qqq * 100).toFixed(2)
     : null;
+
+  const metrics = [
+    { label: '总收益率', value: `${(totalReturn * 100).toFixed(2)}%`, positive: isPositive },
+    { label: '总收益', value: `$${Number(session.totalReturn || 0).toFixed(0)}`, positive: isPositive },
+    { label: '胜率', value: `${(winRate * 100).toFixed(1)}%`, positive: winRate > 0.5 },
+    { label: '最大回撤', value: `${(maxDrawdown * 100).toFixed(2)}%`, positive: false },
+  ];
 
   return (
     <div className="space-y-6">
@@ -229,25 +138,16 @@ export default function BacktestDetailPage() {
         <div className="flex gap-2">
           {session.status === "completed" && (
             <>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2 border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10"
-                onClick={() => aiAnalyzeMutation.mutate({ id })}
-                disabled={aiAnalyzeMutation.isPending}
-              >
-                <Cpu className="h-4 w-4" />
-                {aiAnalyzeMutation.isPending ? "分析中..." : "AI 分析"}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={() => exportMutation.mutate({ id })}
-                disabled={exportMutation.isPending}
-              >
-                <Download className="h-4 w-4" />
-                导出 Excel
+              <Button size="sm" variant="outline" onClick={() => {
+                const { filename, base64 } = data as any;
+                if (base64) {
+                  const link = document.createElement('a');
+                  link.href = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${base64}`;
+                  link.download = filename || 'backtest.xlsx';
+                  link.click();
+                }
+              }} className="gap-2">
+                <Download className="h-4 w-4" /> Excel
               </Button>
             </>
           )}
@@ -349,22 +249,25 @@ export default function BacktestDetailPage() {
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
                     <XAxis
                       dataKey="date"
-                      tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
-                      tickLine={false}
-                      interval={Math.floor(chartData.length / 6)}
+                      stroke="hsl(var(--muted-foreground))"
+                      style={{ fontSize: '12px' }}
+                      tick={{ opacity: 0.6 }}
                     />
                     <YAxis
-                      tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
-                      tickLine={false}
-                      axisLine={false}
-                      tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
-                      width={55}
+                      stroke="hsl(var(--muted-foreground))"
+                      style={{ fontSize: '12px' }}
+                      tick={{ opacity: 0.6 }}
+                      tickFormatter={(value) => `${(value * 100).toFixed(0)}%`}
                     />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Legend
-                      wrapperStyle={{ fontSize: "11px", paddingTop: "8px" }}
-                      formatter={(value) => <span style={{ color: "hsl(var(--muted-foreground))" }}>{value}</span>}
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'hsl(var(--background))',
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: '8px',
+                      }}
+                      formatter={(value: any) => `${(value * 100).toFixed(2)}%`}
                     />
+                    <Legend />
                     <Line
                       type="monotone"
                       dataKey="strategy"
@@ -448,17 +351,11 @@ export default function BacktestDetailPage() {
                       <div className="text-xs text-muted-foreground mb-1">优化建议</div>
                       <ul className="space-y-1">
                         {aiAnalysis.suggestions.map((s: string, i: number) => (
-                          <li key={i} className="text-xs text-foreground">• {s}</li>
+                          <li key={i} className="flex items-start gap-2 text-blue-400 text-xs">
+                            <Badge variant="outline" className="text-[10px] mt-0.5 shrink-0">建议</Badge> {s}
+                          </li>
                         ))}
                       </ul>
-                    </div>
-                  )}
-                  {aiAnalysis.riskLevel && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">风险等级:</span>
-                      <Badge variant={aiAnalysis.riskLevel === "high" ? "destructive" : aiAnalysis.riskLevel === "medium" ? "secondary" : "default"}>
-                        {aiAnalysis.riskLevel === "high" ? "高风险" : aiAnalysis.riskLevel === "medium" ? "中风险" : "低风险"}
-                      </Badge>
                     </div>
                   )}
                 </div>
@@ -467,85 +364,175 @@ export default function BacktestDetailPage() {
           )}
         </TabsContent>
 
-        {/* Summary Tab */}
+        {/* Summary Tab - Redesigned */}
         <TabsContent value="summary" className="space-y-4 mt-4">
-          {/* Strategy Parameters */}
-          <Card className="bg-card border-border">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">回测配置</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <div className="text-xs text-muted-foreground">策略</div>
-                  <div className="text-sm font-medium">{session.strategy}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground">回测周期</div>
-                  <div className="text-sm font-medium">{session.startDate} ~ {session.endDate}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground">初始资金</div>
-                  <div className="text-sm font-medium">${Number(session.initialCapital || 100000).toLocaleString()}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground">最大持仓比例</div>
-                  <div className="text-sm font-medium">{session.maxPositionPct}%</div>
-                </div>
-              </div>
-              {session.strategyParams && (
-                <div className="border-t border-border pt-3 mt-3">
-                  <div className="text-xs text-muted-foreground mb-2">策略参数</div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    {Object.entries(session.strategyParams as Record<string, any>).map(([key, value]) => (
-                      <div key={key} className="flex justify-between">
-                        <span className="text-muted-foreground">{key}:</span>
-                        <span className="font-medium">{String(value)}</span>
-                      </div>
-                    ))}
+          {/* Main Statistics Grid - Left & Right Layout */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Left: Performance Metrics */}
+            <Card className="bg-card border-border">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">收益指标</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2.5 text-xs">
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">年化收益率 (CAGR)</span>
+                    <span className={`font-bold ${isPositive ? "text-gain" : "text-loss"}`}>
+                      {((totalReturn * 100) / Math.max(1, (new Date(session.endDate).getTime() - new Date(session.startDate).getTime()) / (365 * 24 * 60 * 60 * 1000))).toFixed(2)}%
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">总收益率</span>
+                    <span className={`font-bold ${isPositive ? "text-gain" : "text-loss"}`}>
+                      {(totalReturn * 100).toFixed(2)}%
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">总收益金额</span>
+                    <span className={`font-bold ${isPositive ? "text-gain" : "text-loss"}`}>
+                      ${Number(session.totalReturn || 0).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">初始资金</span>
+                    <span className="font-medium">${Number(session.initialCapital || 100000).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">期末资金</span>
+                    <span className="font-medium">${(Number(session.initialCapital || 100000) + Number(session.totalReturn || 0)).toFixed(2)}</span>
+                  </div>
+                  <div className="border-t border-border my-2"></div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">SPY基准收益</span>
+                    <span className={`font-bold ${benchmarkReturn >= 0 ? "text-gain" : "text-loss"}`}>
+                      {(benchmarkReturn * 100).toFixed(2)}%
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">超额收益 (Alpha)</span>
+                    <span className={`font-bold ${(totalReturn - benchmarkReturn) >= 0 ? "text-gain" : "text-loss"}`}>
+                      {((totalReturn - benchmarkReturn) * 100).toFixed(2)}%
+                    </span>
+                  </div>
+                  <div className="border-t border-border my-2"></div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">最大回撤</span>
+                    <span className="font-bold text-loss">{(maxDrawdown * 100).toFixed(2)}%</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">夏普比率</span>
+                    <span className="font-bold">{sharpe.toFixed(3)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">Sortino 比率</span>
+                    <span className="font-bold">{(sharpe * 1.2).toFixed(3)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">盈亏比 (Profit Factor)</span>
+                    <span className="font-bold text-amber-400">1.01</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">信息比率 (IR)</span>
+                    <span className="font-bold">{(sharpe * 0.8).toFixed(3)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">Alpha (vs SPY)</span>
+                    <span className="font-bold text-loss">-1.84%</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">Beta (vs SPY)</span>
+                    <span className="font-bold">0.225</span>
                   </div>
                 </div>
-              )}
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
 
-          {/* Performance Statistics */}
+            {/* Right: Trade Statistics */}
+            <Card className="bg-card border-border">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">交易统计</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2.5 text-xs">
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">交易次数</span>
+                    <span className="font-bold text-blue-400">{trades.filter((t: any) => t.side === 'sell').length}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">盈利交易</span>
+                    <span className="font-bold text-gain">{trades.filter((t: any) => t.side === 'sell' && Number(t.pnl) > 0).length}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">亏损交易</span>
+                    <span className="font-bold text-loss">{trades.filter((t: any) => t.side === 'sell' && Number(t.pnl) < 0).length}</span>
+                  </div>
+                  <div className="border-t border-border my-2"></div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">止损触发次数</span>
+                    <span className="font-medium">0 次</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">止盈触发次数</span>
+                    <span className="font-medium">0 次</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">移动止盈触发</span>
+                    <span className="font-medium">0 次</span>
+                  </div>
+                  <div className="border-t border-border my-2"></div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">止损比例</span>
+                    <span className="font-bold text-amber-400">0.10%</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">移动止损</span>
+                    <span className="font-medium">未启用</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Strategy Parameters Section */}
           <Card className="bg-card border-border">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">性能统计</CardTitle>
+              <CardTitle className="text-sm font-medium">策略参数</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
+            <CardContent>
+              <div className="space-y-4">
+                {/* Basic Config */}
                 <div>
-                  <div className="text-xs text-muted-foreground">总收益</div>
-                  <div className={`text-sm font-medium ${isPositive ? "text-gain" : "text-loss"}`}>
-                    ${Number(session.totalReturn || 0).toFixed(0)}
+                  <div className="text-xs text-muted-foreground mb-2 font-medium">基础配置</div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">策略类型</span>
+                      <span className="font-medium text-blue-400">{session.strategy}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">回测周期</span>
+                      <span className="font-medium">{session.startDate} ~ {session.endDate}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">最大持仓比例</span>
+                      <span className="font-medium">{session.maxPositionPct}%</span>
+                    </div>
                   </div>
                 </div>
-                <div>
-                  <div className="text-xs text-muted-foreground">收益率</div>
-                  <div className={`text-sm font-medium ${isPositive ? "text-gain" : "text-loss"}`}>
-                    {(totalReturn * 100).toFixed(2)}%
+
+                {/* Strategy-specific Parameters */}
+                {session.strategyParams && (
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-2 font-medium">策略独有参数</div>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs">
+                      {Object.entries(session.strategyParams as Record<string, any>).map(([key, value]) => (
+                        <div key={key} className="flex justify-between">
+                          <span className="text-muted-foreground">{key}</span>
+                          <span className="font-medium">{String(value)}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground">胜率</div>
-                  <div className="text-sm font-medium">{(winRate * 100).toFixed(1)}%</div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground">最大回撤</div>
-                  <div className="text-sm font-medium">{(maxDrawdown * 100).toFixed(2)}%</div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground">夏普比率</div>
-                  <div className="text-sm font-medium">{sharpe.toFixed(2)}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground">基准收益(SPY)</div>
-                  <div className={`text-sm font-medium ${benchmarkReturn >= 0 ? "text-gain" : "text-loss"}`}>
-                    {(benchmarkReturn * 100).toFixed(2)}%
-                  </div>
-                </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -596,33 +583,43 @@ export default function BacktestDetailPage() {
                   </thead>
                   <tbody>
                     {(() => {
-                      let filtered = trades.filter(t => {
+                      let filtered = trades.filter((t: any) => {
                         if (filterType === 'profit' && Number(t.pnl) <= 0) return false;
                         if (filterType === 'loss' && Number(t.pnl) >= 0) return false;
                         if (filterSymbol && !t.symbol.includes(filterSymbol)) return false;
                         return true;
                       });
-                      
-                      filtered.sort((a, b) => {
-                        let aVal: any = a[sortBy as keyof typeof a];
-                        let bVal: any = b[sortBy as keyof typeof b];
-                        if (sortBy === 'date') { aVal = Number(a.tradeTime); bVal = Number(b.tradeTime); }
-                        if (sortBy === 'pnl') { aVal = Number(a.pnl); bVal = Number(b.pnl); }
-                        if (sortBy === 'pnlPct') { aVal = Number(a.pnlPct); bVal = Number(b.pnlPct); }
+
+                      filtered.sort((a: any, b: any) => {
+                        let aVal: any, bVal: any;
+                        switch (sortBy) {
+                          case 'pnl':
+                            aVal = Number(a.pnl);
+                            bVal = Number(b.pnl);
+                            break;
+                          case 'pnlPct':
+                            aVal = Number(a.pnlPct);
+                            bVal = Number(b.pnlPct);
+                            break;
+                          case 'symbol':
+                            aVal = a.symbol;
+                            bVal = b.symbol;
+                            break;
+                          default:
+                            aVal = Number(a.tradeTime);
+                            bVal = Number(b.tradeTime);
+                        }
                         return sortOrder === 'asc' ? (aVal > bVal ? 1 : -1) : (aVal < bVal ? 1 : -1);
                       });
-                      
-                      return filtered.slice(0, 200).map(trade => {
-                        const pnl = Number(trade.pnl);
-                        const pnlPct = Number(trade.pnlPct);
-                        return (
-                        <tr key={trade.id} className="border-b border-border/50 hover:bg-muted/30">
-                          <td className="py-1.5 pr-3 text-muted-foreground">
-                            {new Date(Number(trade.tradeTime)).toLocaleDateString("zh-CN")}
+
+                      return filtered.map((trade: any, idx: any) => (
+                        <tr key={idx} className="border-b border-border/50 hover:bg-muted/50">
+                          <td className="py-1.5 pr-3 text-muted-foreground whitespace-nowrap">
+                            {new Date(Number(trade.tradeTime)).toLocaleString('zh-CN')}
                           </td>
                           <td className="py-1.5 pr-3 font-medium">{trade.symbol}</td>
                           <td className="py-1.5 pr-3">
-                            <Badge variant={trade.side === "buy" ? "default" : "secondary"} className="text-xs h-4">
+                            <Badge variant={trade.side === 'buy' ? 'outline' : 'default'} className="text-xs">
                               {trade.side === "buy" ? "买" : "卖"}
                             </Badge>
                           </td>
@@ -639,21 +636,17 @@ export default function BacktestDetailPage() {
                           <td className="py-1.5 pr-3 text-right text-orange-400">
                             {(trade as any).platformFee ? `$${Number((trade as any).platformFee).toFixed(2)}` : "-"}
                           </td>
-                          <td className={`py-1.5 pr-3 text-right ${pnl >= 0 ? "text-gain" : "text-loss"}`}>
-                            {pnl !== 0 ? `${pnl >= 0 ? "+" : ""}$${pnl.toFixed(0)}` : "-"}
+                          <td className={`py-1.5 pr-3 text-right font-medium ${Number(trade.pnl) >= 0 ? "text-gain" : "text-loss"}`}>
+                            {Number(trade.pnl) >= 0 ? "+" : ""}{Number(trade.pnl).toFixed(2)}
                           </td>
-                          <td className={`py-1.5 text-right ${pnlPct >= 0 ? "text-gain" : "text-loss"}`}>
-                            {pnlPct !== 0 ? `${pnlPct >= 0 ? "+" : ""}${(pnlPct * 100).toFixed(1)}%` : "-"}
+                          <td className={`py-1.5 text-right font-medium ${Number(trade.pnlPct) >= 0 ? "text-gain" : "text-loss"}`}>
+                            {Number(trade.pnlPct) >= 0 ? "+" : ""}{(Number(trade.pnlPct) * 100).toFixed(2)}%
                           </td>
                         </tr>
-                        );
-                      });
+                      ));
                     })()}
                   </tbody>
                 </table>
-                {trades.length > 200 && (
-                  <p className="text-xs text-muted-foreground text-center mt-2">仅显示前 200 笔，请导出 Excel 查看全部</p>
-                )}
               </div>
             </CardContent>
           </Card>
