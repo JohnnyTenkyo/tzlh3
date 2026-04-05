@@ -198,7 +198,7 @@ export const appRouter = router({
 
     create: protectedProcedure.input(z.object({
       name: z.string(),
-      strategy: z.enum(["standard", "aggressive", "ladder_cd_combo", "mean_reversion", "macd_volume", "bollinger_squeeze", "gemini_ai"]),
+      strategy: z.enum(["standard", "aggressive", "ladder_cd_combo", "mean_reversion", "macd_volume", "bollinger_squeeze", "gemini_ai", "vamr", "ravts", "rsi_reversal", "macd_divergence"]),
       symbols: z.array(z.string()).min(1),
       startDate: z.string(),
       endDate: z.string(),
@@ -215,7 +215,7 @@ export const appRouter = router({
         strategyParams: input.strategyParams || null,
       }).$returningId();
       const sessionId = result[0].id;
-      const actualStrategy = input.strategy === "gemini_ai" ? "standard" : input.strategy as StrategyType;
+      const actualStrategy = input.strategy === "gemini_ai" ? "standard" : (input.strategy as any as StrategyType);
       runBacktest({
         sessionId, symbols: input.symbols, startDate: input.startDate, endDate: input.endDate,
         strategy: actualStrategy, initialCapital: input.initialCapital, maxPositionPct: input.maxPositionPct,
@@ -314,31 +314,53 @@ export const appRouter = router({
       const trades = await db.select().from(backtestTrades)
         .where(eq(backtestTrades.sessionId, input.id)).orderBy(backtestTrades.tradeTime);
       const wb = XLSX.utils.book_new();
-      const summaryData = [
+      const summaryData: any[] = [
+        ["=== 回测配置 ==="],
         ["回测名称", session.name],
-        ["策略", STRATEGY_INFO[session.strategy as StrategyType]?.name || session.strategy],
+        ["策略", (STRATEGY_INFO as any)[session.strategy]?.name || session.strategy],
         ["开始日期", session.startDate],
         ["结束日期", session.endDate],
-        ["初始资金", Number(session.initialCapital)],
+        ["初始资金", `$${Number(session.initialCapital).toLocaleString()}`],
+        ["最大持仓比例", `${session.maxPositionPct}%`],
+        [""],
+        ["=== 策略参数 ==="],
+      ];
+      if (session.strategyParams) {
+        try {
+          const params = typeof session.strategyParams === 'string' ? JSON.parse(session.strategyParams) : session.strategyParams;
+          Object.entries(params).forEach(([key, value]) => {
+            summaryData.push([key, String(value)]);
+          });
+        } catch {}
+      }
+      summaryData.push(
+        [""],
+        ["=== 性能统计 ==="],
         ["总收益率", `${(Number(session.totalReturnPct) * 100).toFixed(2)}%`],
-        ["总收益", Number(session.totalReturn)],
+        ["总收益", `$${Number(session.totalReturn || 0).toFixed(2)}`],
         ["胜率", `${(Number(session.winRate) * 100).toFixed(1)}%`],
         ["最大回撤", `${(Number(session.maxDrawdown) * 100).toFixed(2)}%`],
-        ["夏普比率", Number(session.sharpeRatio)],
+        ["夏普比率", Number(session.sharpeRatio).toFixed(2)],
+        ["基准收益(SPY)", `${(Number(session.benchmarkReturn) * 100).toFixed(2)}%`],
         ["总交易数", session.totalTrades],
         ["盈利交易", session.winningTrades],
         ["亏损交易", session.losingTrades],
-        ["基准收益(SPY)", `${(Number(session.benchmarkReturn) * 100).toFixed(2)}%`],
-      ];
+      );
       const summaryWs = XLSX.utils.aoa_to_sheet(summaryData);
       XLSX.utils.book_append_sheet(wb, summaryWs, "回测概要");
       const tradeRows = trades.map(t => ({
         "时间": new Date(Number(t.tradeTime)).toLocaleString("zh-CN"),
-        "股票": t.symbol, "方向": t.side === "buy" ? "买入" : "卖出",
-        "数量": Number(t.quantity), "价格": Number(t.price),
-        "金额": Number(t.totalAmount), "手续费": Number(t.fee),
-        "盈亏": Number(t.pnl), "盈亏%": `${(Number(t.pnlPct) * 100).toFixed(2)}%`,
-        "信号类型": t.signalType || "", "原因": t.reason || "",
+        "股票": t.symbol,
+        "方向": t.side === "buy" ? "买入" : "卖出",
+        "数量": Number(t.quantity),
+        "价格": `$${Number(t.price).toFixed(2)}`,
+        "金额": `$${Number(t.totalAmount).toFixed(2)}`,
+        "佣金": (t as any).commissionFee ? `$${Number((t as any).commissionFee).toFixed(2)}` : "-",
+        "平台费": (t as any).platformFee ? `$${Number((t as any).platformFee).toFixed(2)}` : "-",
+        "盈亏": `$${Number(t.pnl).toFixed(2)}`,
+        "盈亏%": `${(Number(t.pnlPct) * 100).toFixed(2)}%`,
+        "信号类型": t.signalType || "-",
+        "买卖理由": t.reason || "-",
       }));
       const tradesWs = XLSX.utils.json_to_sheet(tradeRows);
       XLSX.utils.book_append_sheet(wb, tradesWs, "交易记录");
@@ -352,7 +374,7 @@ export const appRouter = router({
     // -------------------------------------------------------
     compareStrategies: protectedProcedure.input(z.object({
       name: z.string(),
-      strategies: z.array(z.enum(["standard", "aggressive", "ladder_cd_combo", "mean_reversion", "macd_volume", "bollinger_squeeze", "gemini_ai"])).min(2).max(7),
+      strategies: z.array(z.enum(["standard", "aggressive", "ladder_cd_combo", "mean_reversion", "macd_volume", "bollinger_squeeze", "gemini_ai", "vamr", "ravts", "rsi_reversal", "macd_divergence"])).min(2).max(10),
       symbols: z.array(z.string()).min(1),
       startDate: z.string(),
       endDate: z.string(),

@@ -25,7 +25,7 @@ import {
 } from "@shared/stockPool";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-type StrategyKey = "standard" | "aggressive" | "ladder_cd_combo" | "mean_reversion" | "macd_volume" | "bollinger_squeeze" | "gemini_ai";
+type StrategyKey = "standard" | "aggressive" | "ladder_cd_combo" | "mean_reversion" | "macd_volume" | "bollinger_squeeze" | "gemini_ai" | "vamr" | "ravts" | "rsi_reversal" | "macd_divergence";
 
 const STRATEGY_COLORS: Record<StrategyKey, string> = {
   standard: "#3b82f6",
@@ -35,6 +35,10 @@ const STRATEGY_COLORS: Record<StrategyKey, string> = {
   macd_volume: "#8b5cf6",
   bollinger_squeeze: "#06b6d4",
   gemini_ai: "#f97316",
+  vamr: "#ec4899",
+  ravts: "#84cc16",
+  rsi_reversal: "#14b8a6",
+  macd_divergence: "#f43f5e",
 };
 
 const COMPARE_COLORS = ["#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#06b6d4", "#f97316", "#ec4899", "#84cc16", "#14b8a6"];
@@ -744,6 +748,10 @@ export default function BacktestPage() {
     macd_volume: { ...DEFAULT_PARAMS["macd_volume"] },
     bollinger_squeeze: { ...DEFAULT_PARAMS["bollinger_squeeze"] },
     gemini_ai: { ...DEFAULT_PARAMS["gemini_ai"] },
+    vamr: { ...DEFAULT_PARAMS["vamr"] },
+    ravts: { ...DEFAULT_PARAMS["ravts"] },
+    rsi_reversal: { ...DEFAULT_PARAMS["rsi_reversal"] },
+    macd_divergence: { ...DEFAULT_PARAMS["macd_divergence"] },
   });
 
   // AI Config selection
@@ -751,7 +759,7 @@ export default function BacktestPage() {
 
   // Multi-strategy compare mode
   const [compareMode, setCompareMode] = useState(false);
-  const [compareStrategies, setCompareStrategies] = useState<StrategyKey[]>(["standard", "aggressive"]);
+  const [compareStrategies, setCompareStrategies] = useState<StrategyKey[]>(["standard", "aggressive", "vamr", "ravts", "rsi_reversal", "macd_divergence"]);
   const [activeConfigTab, setActiveConfigTab] = useState("config");
 
   const { data: strategiesData } = trpc.backtest.strategies.useQuery();
@@ -800,7 +808,8 @@ export default function BacktestPage() {
 
   const handleStrategyChange = (key: StrategyKey) => {
     setStrategy(key);
-    setStrategyParams({ ...DEFAULT_PARAMS[key] || DEFAULT_PARAMS["standard"] });
+    const defaultParams = DEFAULT_PARAMS[key as string];
+    setStrategyParams(defaultParams || DEFAULT_PARAMS["standard"]);
   };
 
   const handleParamChange = (key: string, value: number | null) => {
@@ -834,19 +843,20 @@ export default function BacktestPage() {
     if (compareMode) {
       if (compareStrategies.length < 2) { toast.error("请选择至少2个策略进行对比"); return; }
       compareStrategiesMutation.mutate({
-        name, strategies: compareStrategies, symbols: selectedSymbols,
+        name, strategies: compareStrategies as any, symbols: selectedSymbols,
         startDate, endDate, initialCapital, maxPositionPct, strategyParams: compareStrategyParams as any,
       });
     } else {
       createMutation.mutate({
-        name, strategy, symbols: selectedSymbols,
+        name, strategy: strategy as any, symbols: selectedSymbols,
         startDate, endDate, initialCapital, maxPositionPct, strategyParams: params as any,
       });
     }
   };
 
-  const toggleCompareStrategy = (key: StrategyKey) =>
+  const toggleCompareStrategy = (key: StrategyKey) => {
     setCompareStrategies(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  };
 
   const strategies = strategiesData || [];
   const isSubmitting = createMutation.isPending || compareStrategiesMutation.isPending;
