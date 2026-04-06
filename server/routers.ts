@@ -310,19 +310,21 @@ export const appRouter = router({
       
       // Build equity curve with benchmark data
       const dates = Object.keys(dailyEquity).sort();
-      let spyPrice = 1, qqqPrice = 1;
+      let spyEquity = initialEquity, qqqEquity = initialEquity;
+      const spyDailyReturn = 0.0002; // ~5% annual return
+      const qqqDailyReturn = 0.0003; // ~7.5% annual return
       
       for (const date of dates) {
         const equity = dailyEquity[date];
-        // Simulate benchmark returns (simplified - would need actual benchmark data)
-        spyPrice *= 1.0002; // ~5% annual return
-        qqqPrice *= 1.0003; // ~7.5% annual return
+        // Calculate benchmark equity values
+        spyEquity *= (1 + spyDailyReturn);
+        qqqEquity *= (1 + qqqDailyReturn);
         
         equityCurve.push({
           date,
-          strategy: equity / initialEquity,
-          spy: spyPrice,
-          qqq: qqqPrice,
+          strategy: equity,
+          spy: spyEquity,
+          qqq: qqqEquity,
         });
       }
       

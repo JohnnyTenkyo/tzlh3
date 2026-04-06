@@ -72,13 +72,18 @@ export default function BacktestDetailPage() {
     }
   } catch {}
 
-  const monthlyArray = monthlyStats ? Object.entries(monthlyStats).map(([month, stats]: any) => ({
-    month,
-    profit: stats.profit || 0,
-    winRate: stats.winRate || 0,
-    trades: stats.trades || 0,
-    wins: stats.wins || 0,
-  })) : [];
+  const monthlyArray = monthlyStats ? Object.entries(monthlyStats).map(([month, stats]: any) => {
+    const monthProfit = stats.profit || 0;
+    const monthReturnPct = stats.returnPct || (monthProfit / (session.initialBalance || 1)) * 100;
+    return {
+      month,
+      profit: monthProfit,
+      returnPct: monthReturnPct,
+      winRate: stats.winRate || 0,
+      trades: stats.trades || 0,
+      wins: stats.wins || 0,
+    };
+  }) : [];
 
   const totalProfit = monthlyArray.reduce((sum, m) => sum + m.profit, 0);
   const totalWins = monthlyArray.reduce((sum, m) => sum + m.wins, 0);
@@ -192,6 +197,9 @@ export default function BacktestDetailPage() {
                     <div className="text-xs text-muted-foreground mb-1">{m.month}</div>
                     <div className={`text-xs font-bold ${textColor} mb-0.5`}>
                       {m.profit >= 0 ? "+" : ""}{m.profit.toFixed(0)}
+                    <div className={`text-[10px] font-semibold ${textColor} mb-0.5`}>
+                      {m.returnPct >= 0 ? "+" : ""}{m.returnPct.toFixed(2)}%
+                    </div>
                     </div>
                     <div className="text-[10px] text-muted-foreground">
                       {m.wins}/{m.trades}
@@ -257,7 +265,7 @@ export default function BacktestDetailPage() {
                       stroke="hsl(var(--muted-foreground))"
                       style={{ fontSize: '12px' }}
                       tick={{ opacity: 0.6 }}
-                      tickFormatter={(value) => `${(value * 100).toFixed(0)}%`}
+                      tickFormatter={(value) => `$${(value).toFixed(0)}`}
                     />
                     <Tooltip
                       contentStyle={{
@@ -265,7 +273,7 @@ export default function BacktestDetailPage() {
                         border: '1px solid hsl(var(--border))',
                         borderRadius: '8px',
                       }}
-                      formatter={(value: any) => `${(value * 100).toFixed(2)}%`}
+                      formatter={(value: any) => `$${(value).toFixed(2)}`}
                     />
                     <Legend />
                     <Line
@@ -526,8 +534,33 @@ export default function BacktestDetailPage() {
                     <div className="grid grid-cols-1 gap-2 text-xs">
                       {(() => {
                         const params = session.strategyParams as Record<string, any>;
+                        const paramLabels: Record<string, string> = {
+                          'cdScoreThreshold': 'CD评分阈值',
+                          'maxHoldingDays': '最大持仓天数',
+                          'stopLossPct': '止损比例',
+                          'takeProfitPct': '止盈比例',
+                          'trailingStopPct': '移动止损比例',
+                          'rsiPeriod': 'RSI周期',
+                          'rsiOverbought': 'RSI超买位',
+                          'rsiOversold': 'RSI超卖位',
+                          'macdFastPeriod': 'MACD快速线周期',
+                          'macdSlowPeriod': 'MACD慢速线周期',
+                          'macdSignalPeriod': 'MACD信号线周期',
+                          'atrPeriod': 'ATR周期',
+                          'bollingerPeriod': '布林带周期',
+                          'bollingerStdDev': '布林带标准差',
+                          'volumeThreshold': '成交量阈值',
+                          'minPrice': '最低价格',
+                          'maxPrice': '最高价格',
+                          'momentum': '动量值',
+                          'volatility': '波动率',
+                        };
                         const paramDescriptions: Record<string, string> = {
-                          'cdScore': 'CD评分阈值 (0-100)：用于标准策略(4321)的买卖信号判断',
+                          'cdScoreThreshold': 'CD评分阈值 (0-100)：用于标准策略(4321)的买卖信号判断',
+                          'maxHoldingDays': '最大持仓天数 (天)：不管上涨下跌，超过此天数后自动平仓',
+                          'stopLossPct': '止损比例 (%)：下跌超过此比例时自动平仓',
+                          'takeProfitPct': '止盈比例 (%)：上涨超过此比例时自动平仓',
+                          'trailingStopPct': '移动止损比例 (%)：上涨后下跌超过此比例时自动平仓',
                           'rsiPeriod': 'RSI周期 (天数)：计算RSI指标的时间窗口，默认为14天',
                           'rsiOverbought': 'RSI超买位 (值)：当RSI高于此值时认为超买，默认为70',
                           'rsiOversold': 'RSI超卖位 (值)：当RSI低于此值时认为超卖，默认为30',
@@ -537,24 +570,17 @@ export default function BacktestDetailPage() {
                           'atrPeriod': 'ATR周期 (天数)：计算平均真实波幅的时间窗口，默认14天',
                           'bollingerPeriod': '布林带周期 (天数)：默认20天',
                           'bollingerStdDev': '布林带标准差 (倍数)：默认2倍',
-                          'stopLoss': '止损位 (%)：下跌超过此比例时自动平仓，默认为5%',
-                          'takeProfit': '止盈位 (%)：上涨超过此比例时自动平仓，默认为10%',
-                          'trailingStop': '移动止损 (%)：上涨后下跌超过此比例时自动平仓',
-                          'holdingDays': '最大持仓天数 (天)：不管上涨下跌，超过此天数后自动平仓',
-                          'maxPositionSize': '最大持仓数量 (股)：单个位置的最大持仓数量',
                           'volumeThreshold': '成交量阈值 (万股)：平均日成交量低于此值时不买入',
                           'minPrice': '最低价格 (元)：股票价格低于此值时不买入',
                           'maxPrice': '最高价格 (元)：股票价格高于此值时不买入',
-                          'marketCapMin': '最低市值 (万元)：市值低于此值时不买入',
-                          'marketCapMax': '最高市值 (万元)：市值高于此值时不买入',
                           'momentum': '动量值 (值)：用于评估股票上涨动量的指标，值越高表示上涨趋势越强',
-                          'volatility': '波子率 (%)：股票价格波动率，不会买入波子率超过此值的股票',
+                          'volatility': '波动率 (%)：股票价格波动率，不会买入波动率超过此值的股票',
                         };
                         return Object.entries(params).map(([key, value]) => (
                           <div key={key} className="border border-border/50 rounded p-2 bg-background/50">
                             <div className="flex justify-between items-start mb-1">
-                              <span className="font-medium text-blue-400">{key}</span>
-                              <span className="font-bold text-foreground">{String(value)}</span>
+                              <span className="font-medium text-blue-400">{paramLabels[key] || key}</span>
+                              <span className="font-bold text-foreground">{value === null ? '不限' : String(value)}</span>
                             </div>
                             {paramDescriptions[key] && (
                               <div className="text-[11px] text-muted-foreground leading-relaxed">
