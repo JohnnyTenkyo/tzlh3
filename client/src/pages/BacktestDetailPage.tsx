@@ -374,7 +374,7 @@ export default function BacktestDetailPage() {
                 <CardTitle className="text-sm font-medium">收益指标</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-2.5 text-xs">
+                <div className="space-y-2 text-xs">
                   <div className="flex justify-between items-center">
                     <span className="text-muted-foreground">年化收益率 (CAGR)</span>
                     <span className={`font-bold ${isPositive ? "text-gain" : "text-loss"}`}>
@@ -401,7 +401,7 @@ export default function BacktestDetailPage() {
                     <span className="text-muted-foreground">期末资金</span>
                     <span className="font-medium">${(Number(session.initialCapital || 100000) + Number(session.totalReturn || 0)).toFixed(2)}</span>
                   </div>
-                  <div className="border-t border-border my-2"></div>
+                  <div className="border-t border-border my-1.5"></div>
                   <div className="flex justify-between items-center">
                     <span className="text-muted-foreground">SPY基准收益</span>
                     <span className={`font-bold ${benchmarkReturn >= 0 ? "text-gain" : "text-loss"}`}>
@@ -414,7 +414,7 @@ export default function BacktestDetailPage() {
                       {((totalReturn - benchmarkReturn) * 100).toFixed(2)}%
                     </span>
                   </div>
-                  <div className="border-t border-border my-2"></div>
+                  <div className="border-t border-border my-1.5"></div>
                   <div className="flex justify-between items-center">
                     <span className="text-muted-foreground">最大回撤</span>
                     <span className="font-bold text-loss">{(maxDrawdown * 100).toFixed(2)}%</span>
@@ -453,7 +453,7 @@ export default function BacktestDetailPage() {
                 <CardTitle className="text-sm font-medium">交易统计</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-2.5 text-xs">
+                <div className="space-y-2 text-xs">
                   <div className="flex justify-between items-center">
                     <span className="text-muted-foreground">交易次数</span>
                     <span className="font-bold text-blue-400">{trades.filter((t: any) => t.side === 'sell').length}</span>
@@ -466,7 +466,7 @@ export default function BacktestDetailPage() {
                     <span className="text-muted-foreground">亏损交易</span>
                     <span className="font-bold text-loss">{trades.filter((t: any) => t.side === 'sell' && Number(t.pnl) < 0).length}</span>
                   </div>
-                  <div className="border-t border-border my-2"></div>
+                  <div className="border-t border-border my-1.5"></div>
                   <div className="flex justify-between items-center">
                     <span className="text-muted-foreground">止损触发次数</span>
                     <span className="font-medium">0 次</span>
@@ -479,7 +479,7 @@ export default function BacktestDetailPage() {
                     <span className="text-muted-foreground">移动止盈触发</span>
                     <span className="font-medium">0 次</span>
                   </div>
-                  <div className="border-t border-border my-2"></div>
+                  <div className="border-t border-border my-1.5"></div>
                   <div className="flex justify-between items-center">
                     <span className="text-muted-foreground">止损比例</span>
                     <span className="font-bold text-amber-400">0.10%</span>
@@ -523,13 +523,47 @@ export default function BacktestDetailPage() {
                 {session.strategyParams && (
                   <div>
                     <div className="text-xs text-muted-foreground mb-2 font-medium">策略独有参数</div>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs">
-                      {Object.entries(session.strategyParams as Record<string, any>).map(([key, value]) => (
-                        <div key={key} className="flex justify-between">
-                          <span className="text-muted-foreground">{key}</span>
-                          <span className="font-medium">{String(value)}</span>
-                        </div>
-                      ))}
+                    <div className="grid grid-cols-1 gap-2 text-xs">
+                      {(() => {
+                        const params = session.strategyParams as Record<string, any>;
+                        const paramDescriptions: Record<string, string> = {
+                          'cdScore': 'CD评分阈值 (0-100)：用于标准策略(4321)的买卖信号判断',
+                          'rsiPeriod': 'RSI周期 (天数)：计算RSI指标的时间窗口，默认为14天',
+                          'rsiOverbought': 'RSI超买位 (值)：当RSI高于此值时认为超买，默认为70',
+                          'rsiOversold': 'RSI超卖位 (值)：当RSI低于此值时认为超卖，默认为30',
+                          'macdFastPeriod': 'MACD快速线周期 (天数)：默认12天',
+                          'macdSlowPeriod': 'MACD慢速线周期 (天数)：默认26天',
+                          'macdSignalPeriod': 'MACD信号线周期 (天数)：默认9天',
+                          'atrPeriod': 'ATR周期 (天数)：计算平均真实波幅的时间窗口，默认14天',
+                          'bollingerPeriod': '布林带周期 (天数)：默认20天',
+                          'bollingerStdDev': '布林带标准差 (倍数)：默认2倍',
+                          'stopLoss': '止损位 (%)：下跌超过此比例时自动平仓，默认为5%',
+                          'takeProfit': '止盈位 (%)：上涨超过此比例时自动平仓，默认为10%',
+                          'trailingStop': '移动止损 (%)：上涨后下跌超过此比例时自动平仓',
+                          'holdingDays': '最大持仓天数 (天)：不管上涨下跌，超过此天数后自动平仓',
+                          'maxPositionSize': '最大持仓数量 (股)：单个位置的最大持仓数量',
+                          'volumeThreshold': '成交量阈值 (万股)：平均日成交量低于此值时不买入',
+                          'minPrice': '最低价格 (元)：股票价格低于此值时不买入',
+                          'maxPrice': '最高价格 (元)：股票价格高于此值时不买入',
+                          'marketCapMin': '最低市值 (万元)：市值低于此值时不买入',
+                          'marketCapMax': '最高市值 (万元)：市值高于此值时不买入',
+                          'momentum': '动量值 (值)：用于评估股票上涨动量的指标，值越高表示上涨趋势越强',
+                          'volatility': '波子率 (%)：股票价格波动率，不会买入波子率超过此值的股票',
+                        };
+                        return Object.entries(params).map(([key, value]) => (
+                          <div key={key} className="border border-border/50 rounded p-2 bg-background/50">
+                            <div className="flex justify-between items-start mb-1">
+                              <span className="font-medium text-blue-400">{key}</span>
+                              <span className="font-bold text-foreground">{String(value)}</span>
+                            </div>
+                            {paramDescriptions[key] && (
+                              <div className="text-[11px] text-muted-foreground leading-relaxed">
+                                {paramDescriptions[key]}
+                              </div>
+                            )}
+                          </div>
+                        ));
+                      })()}
                     </div>
                   </div>
                 )}

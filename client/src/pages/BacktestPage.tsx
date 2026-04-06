@@ -18,7 +18,7 @@ import {
   Download, Cpu, SlidersHorizontal, Info, X, Settings2
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import { AIConfigPanel } from "@/components/AIConfigPanel";
+
 import {
   STOCK_POOL, SECTOR_LABELS, MARKET_CAP_TIER_LABELS, filterStocks, getMarketCapTier,
   type StockSector, type MarketCapTier
@@ -754,16 +754,12 @@ export default function BacktestPage() {
     macd_divergence: { ...DEFAULT_PARAMS["macd_divergence"] },
   });
 
-  // AI Config selection
-  const [selectedAIConfigId, setSelectedAIConfigId] = useState<number | null>(null);
-
   // Multi-strategy compare mode
   const [compareMode, setCompareMode] = useState(false);
   const [compareStrategies, setCompareStrategies] = useState<StrategyKey[]>(["standard", "aggressive", "vamr", "ravts", "rsi_reversal", "macd_divergence"]);
   const [activeConfigTab, setActiveConfigTab] = useState("config");
 
   const { data: strategiesData } = trpc.backtest.strategies.useQuery();
-  const { data: aiConfigs = [] } = trpc.ai.getConfigs.useQuery();
   const { data: historyData, isLoading: historyLoading } = trpc.backtest.list.useQuery(undefined, {
     enabled: isAuthenticated, refetchInterval: 5000,
   });
@@ -899,12 +895,11 @@ export default function BacktestPage() {
         {/* ── Left: Config (2/3 width) ── */}
         <div className="lg:col-span-2">
           <Tabs value={activeConfigTab} onValueChange={setActiveConfigTab}>
-            <TabsList className="grid grid-cols-4 w-full">
+            <TabsList className="grid grid-cols-3 w-full">
               <TabsTrigger value="config">基础配置</TabsTrigger>
               <TabsTrigger value="params">
                 <SlidersHorizontal className="w-3 h-3 mr-1" />参数调优
               </TabsTrigger>
-              <TabsTrigger value="ai">AI 配置</TabsTrigger>
               <TabsTrigger value="history">历史记录</TabsTrigger>
             </TabsList>
 
@@ -1041,29 +1036,31 @@ export default function BacktestPage() {
                   <Input type="number" value={initialCapital} onChange={e => setInitialCapital(Number(e.target.value))} className="h-8 text-sm" />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs">最大仓位比例 (%)</Label>
-                  <Input type="number" value={maxPositionPct} onChange={e => setMaxPositionPct(Number(e.target.value))} className="h-8 text-sm" />
+                  <div className="flex justify-between items-center">
+                    <Label className="text-xs">最大仓位比例</Label>
+                    <span className="text-xs font-medium text-blue-400">{maxPositionPct}%</span>
+                  </div>
+                  <div className="flex gap-2 items-center">
+                    <input 
+                      type="range" 
+                      min="1" 
+                      max="100" 
+                      value={maxPositionPct} 
+                      onChange={e => setMaxPositionPct(Number(e.target.value))}
+                      className="flex-1 h-2 bg-border rounded-lg appearance-none cursor-pointer accent-blue-500"
+                    />
+                    <Input 
+                      type="number" 
+                      min="1" 
+                      max="100"
+                      value={maxPositionPct} 
+                      onChange={e => setMaxPositionPct(Math.min(100, Math.max(1, Number(e.target.value))))}
+                      className="h-8 w-16 text-sm"
+                    />
+                  </div>
                 </div>
               </div>
 
-              {/* AI Config Selection */}
-              {aiConfigs.length > 0 && (
-                <div className="space-y-1.5">
-                  <Label className="text-xs">AI 配置（可选）</Label>
-                  <select
-                    value={selectedAIConfigId || ""}
-                    onChange={(e) => setSelectedAIConfigId(e.target.value ? Number(e.target.value) : null)}
-                    className="w-full h-8 px-2 text-sm border border-border rounded-md bg-background text-foreground"
-                  >
-                    <option value="">使用默认 AI 配置</option>
-                    {aiConfigs.map((config: any) => (
-                      <option key={config.id} value={config.id}>
-                        {config.provider} - {config.model}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
 
               {/* Submit */}
               <Button className="w-full" onClick={handleSubmit} disabled={isSubmitting || !isAuthenticated}>
@@ -1160,16 +1157,7 @@ export default function BacktestPage() {
               </div>
             </TabsContent>
 
-            {/* ── Tab 3: AI Config ── */}
-            <TabsContent value="ai" className="mt-4">
-              <Card>
-                <CardContent className="pt-4">
-                  <AIConfigPanel />
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            {/* ── Tab 4: History ── */}
+            {/* ── Tab 3: History ── */}
             <TabsContent value="history" className="mt-4">
               <Tabs defaultValue="list">
                 <TabsList className="grid grid-cols-2 w-full">

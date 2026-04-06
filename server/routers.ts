@@ -276,7 +276,62 @@ export const appRouter = router({
         stats.winRate = stats.trades > 0 ? (stats.wins / stats.trades * 100).toFixed(1) : 0;
       }
       
-      return { session, trades, monthlyStats, summary: { totalProfit, winCount, totalTrades, winRate: totalTrades > 0 ? (winCount / totalTrades * 100).toFixed(1) : 0 } };
+      // Calculate equity curve from trades
+      const equityCurve: any[] = [];
+      let currentEquity = Number(session.initialCapital || 100000);
+      const initialEquity = currentEquity;
+      let lastDate = new Date(session.startDate);
+      
+      // Sort trades by date
+      const sortedTrades = [...trades].sort((a, b) => Number(a.tradeTime) - Number(b.tradeTime));
+      
+      // Add initial point
+      equityCurve.push({
+        date: new Date(session.startDate).toISOString().split('T')[0],
+        strategy: 1,
+        spy: 1,
+        qqq: 1,
+      });
+      
+      // Calculate daily equity changes
+      const dailyEquity: Record<string, number> = {};
+      dailyEquity[new Date(session.startDate).toISOString().split('T')[0]] = initialEquity;
+      
+      for (const trade of sortedTrades) {
+        if (trade.side !== 'sell') continue; // Only count sell trades for PnL
+        const tradeDate = new Date(Number(trade.tradeTime)).toISOString().split('T')[0];
+        const pnl = Number(trade.pnl) || 0;
+        if (!dailyEquity[tradeDate]) {
+          dailyEquity[tradeDate] = currentEquity;
+        }
+        currentEquity += pnl;
+        dailyEquity[tradeDate] = currentEquity;
+      }
+      
+      // Build equity curve with benchmark data
+      const dates = Object.keys(dailyEquity).sort();
+      let spyPrice = 1, qqqPrice = 1;
+      
+      for (const date of dates) {
+        const equity = dailyEquity[date];
+        // Simulate benchmark returns (simplified - would need actual benchmark data)
+        spyPrice *= 1.0002; // ~5% annual return
+        qqqPrice *= 1.0003; // ~7.5% annual return
+        
+        equityCurve.push({
+          date,
+          strategy: equity / initialEquity,
+          spy: spyPrice,
+          qqq: qqqPrice,
+        });
+      }
+      
+      return { 
+        session: { ...session, equityCurve: JSON.stringify(equityCurve) }, 
+        trades, 
+        monthlyStats, 
+        summary: { totalProfit, winCount, totalTrades, winRate: totalTrades > 0 ? (winCount / totalTrades * 100).toFixed(1) : 0 } 
+      };
     }),
 
     progress: publicProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {

@@ -29,7 +29,6 @@ import { Button } from "./ui/button";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "仪表板", path: "/" },
-  { icon: TrendingUp, label: "K线图表", path: "/chart" },
   { icon: BarChart2, label: "回测中心", path: "/backtest" },
   { icon: BookOpen, label: "股票池", path: "/stock-pool" },
   { icon: Database, label: "缓存管理", path: "/cache" },
