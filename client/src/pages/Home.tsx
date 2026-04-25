@@ -28,8 +28,8 @@ export default function Home() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">梯子量化平台</h1>
-          <p className="text-muted-foreground mt-1">多数据源聚合 · 6种策略回测 · Gemini AI 智能分析</p>
+          <h1 className="text-2xl font-bold text-foreground">web-db-user 融合量化平台</h1>
+          <p className="text-muted-foreground mt-1">tzlh3 + meigulianghua3.6 融合检查点 · 零运维成本架构</p>
         </div>
         {!isAuthenticated ? (
           <Button onClick={() => setLocation("/auth")} className="gap-2">
@@ -119,11 +119,11 @@ export default function Home() {
           <div className="flex items-start gap-3">
             <Cpu className="h-5 w-5 text-cyan-400 mt-0.5 shrink-0" />
             <div>
-              <div className="font-medium text-sm text-cyan-400">AI 服务集成（Gemini + OpenAI 双备份）</div>
+              <div className="font-medium text-sm text-cyan-400">AI 服务集成（仅免费通道）</div>
               <div className="text-xs text-muted-foreground mt-1">
-                Gemini: <span className={geminiStatus?.gemini?.connected ? "text-green-400" : "text-yellow-400"}>{geminiStatus?.gemini?.connected ? "✓ 已连接" : "不可用"}</span>
-                {" · "}OpenAI: <span className={geminiStatus?.openai?.connected ? "text-green-400" : "text-yellow-400"}>{geminiStatus?.openai?.connected ? "✓ 已连接" : "不可用"}</span>
-                {" · "}当前使用: <span className="text-foreground">{geminiStatus?.activeProvider === "gemini" ? "Gemini" : geminiStatus?.activeProvider === "openai" ? "OpenAI" : "检测中..."}</span>
+                Gemini: <span className={geminiStatus?.gemini?.connected ? "text-green-400" : "text-yellow-400"}>{geminiStatus?.gemini?.connected ? "✓ 已连接" : "未配置"}</span>
+                {" · "}OpenAI: <span className="text-muted-foreground">按要求禁用（不使用付费集成 API）</span>
+                {" · "}当前使用: <span className="text-foreground">{geminiStatus?.gemini?.connected ? "Gemini" : "本地规则引擎"}</span>
               </div>
             </div>
           </div>
